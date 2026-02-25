@@ -136,7 +136,7 @@ export class PullRequestModel implements IPullRequestModel {
 		}
 
 		const org = this.azdoRepository.azdo?.orgUrl;
-		const project = this.azdoRepository.azdo?.projectName;
+		const project = this.azdoRepository.getProjectName();
 		return `${org}/${this.item.repository?.project?.name ?? project}/_git/${
 			this.item.repository?.name
 		}/pullrequest/${this.getPullRequestId()}`;
@@ -656,7 +656,7 @@ export class PullRequestModel implements IPullRequestModel {
 				targetVersionCommit: targetVersionCommit,
 				fileDiffParams: fileDiffParams,
 			},
-			this.azdoRepository.azdo!.projectName,
+			this.azdoRepository.getProjectName(),
 			repoId,
 		);
 	}

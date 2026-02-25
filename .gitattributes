@@ -1,0 +1,90 @@
+# --- Git LFS Configuration (Centralized) ---
+# This is the centralized LFS tracking configuration for all projects.
+# It is referenced by the git hooks (pre-commit, post-checkout) in setup/git-template/hooks/
+# When this file is updated, all new projects cloned will automatically use the latest rules.
+
+#SOLIDWORKS (Lockable)
+*.[sS][lL][dD][pP][rR][tT] filter=lfs diff=lfs merge=lfs -text lockable
+*.[sS][lL][dD][dD][rR][wW] filter=lfs diff=lfs merge=lfs -text lockable
+*.[sS][lL][dD][aA][sS][mM] filter=lfs diff=lfs merge=lfs -text lockable
+*.[sS][lL][dD][dD][rR][tT] filter=lfs diff=lfs merge=lfs -text lockable
+*.[dD][rR][wW][dD][oO][tT] filter=lfs diff=lfs merge=lfs -text lockable
+*.[sS][tT][eE][pP] filter=lfs diff=lfs merge=lfs -text lockable
+*.[sS][tT][pP] filter=lfs diff=lfs merge=lfs -text lockable
+*.[dD][wW][gG] filter=lfs diff=lfs merge=lfs -text lockable
+*.[sS][tT][lL] filter=lfs diff=lfs merge=lfs -text lockable
+
+#PDF (Lockable)
+*.[pP][dD][fF] filter=lfs diff=lfs merge=lfs -text lockable
+
+#IMAGES/VISUAL/ILLUSTRATOR (Lockable)
+*.[pP][nN][gG] filter=lfs diff=lfs merge=lfs -text lockable
+*.[jJ][pP][gG] filter=lfs diff=lfs merge=lfs -text lockable
+*.[jJ][pP][eE][gG] filter=lfs diff=lfs merge=lfs -text lockable
+*.[bB][mM][pP] filter=lfs diff=lfs merge=lfs -text lockable
+*.[tT][iI][fF] filter=lfs diff=lfs merge=lfs -text lockable
+*.[tT][iI][fF][fF] filter=lfs diff=lfs merge=lfs -text lockable
+*.[aA][iI] filter=lfs diff=lfs merge=lfs -text lockable
+*.[sS][vV][gG] filter=lfs diff=lfs merge=lfs -text lockable
+
+#VIDEOS (Lockable)
+*.[aA][sS][fF] filter=lfs diff=lfs merge=lfs -text lockable
+*.[aA][vV][iI] filter=lfs diff=lfs merge=lfs -text lockable
+*.[fF][lL][vV] filter=lfs diff=lfs merge=lfs -text lockable
+*.[mM][oO][vV] filter=lfs diff=lfs merge=lfs -text lockable
+*.[mM][pP]4 filter=lfs diff=lfs merge=lfs -text lockable
+*.[mM][pP][eE][gG] filter=lfs diff=lfs merge=lfs -text lockable
+*.[mM][pP][gG] filter=lfs diff=lfs merge=lfs -text lockable
+*.[oO][gG][vV] filter=lfs diff=lfs merge=lfs -text lockable
+*.[wW][mM][vV] filter=lfs diff=lfs merge=lfs -text lockable
+
+#AUDIO (Lockable)
+*.[aA][cC][cC] filter=lfs diff=lfs merge=lfs -text lockable
+*.[aA][iI][fF] filter=lfs diff=lfs merge=lfs -text lockable
+*.[aA][iI][fF][fF] filter=lfs diff=lfs merge=lfs -text lockable
+*.[bB][aA][nN][kK] filter=lfs diff=lfs merge=lfs -text lockable
+*.[iI][tT] filter=lfs diff=lfs merge=lfs -text lockable
+*.[mM][oO][dD] filter=lfs diff=lfs merge=lfs -text lockable
+*.[mM][pP]3 filter=lfs diff=lfs merge=lfs -text lockable
+*.[oO][gG][gG] filter=lfs diff=lfs merge=lfs -text lockable
+*.[sS]3[mM] filter=lfs diff=lfs merge=lfs -text lockable
+*.[wW][aA][vV] filter=lfs diff=lfs merge=lfs -text lockable
+*.[xX][mM] filter=lfs diff=lfs merge=lfs -text lockable
+
+#MICROSOFT OFFICE FILES (Lockable)
+*.[dD][oO][cC][xX] filter=lfs diff=lfs merge=lfs -text lockable
+*.[xX][lL][sS][xX] filter=lfs diff=lfs merge=lfs -text lockable
+*.[xX][lL][sS][mM] filter=lfs diff=lfs merge=lfs -text lockable
+*.[pP][pP][tT][xX] filter=lfs diff=lfs merge=lfs -text lockable
+*.[dD][oO][cC] filter=lfs diff=lfs merge=lfs -text lockable
+*.[xX][lL][sS] filter=lfs diff=lfs merge=lfs -text lockable
+*.[pP][pP][tT] filter=lfs diff=lfs merge=lfs -text lockable
+*.[mM][sS][gG] filter=lfs diff=lfs merge=lfs -text lockable
+
+#COMPRESSED/ZIP FILES (Lockable)
+*.7[zZ] filter=lfs diff=lfs merge=lfs -text lockable
+*.[bB][zZ]2 filter=lfs diff=lfs merge=lfs -text lockable
+*.[gG][zZ] filter=lfs diff=lfs merge=lfs -text lockable
+*.[rR][aA][rR] filter=lfs diff=lfs merge=lfs -text lockable
+*.[tT][aA][rR] filter=lfs diff=lfs merge=lfs -text lockable
+*.[tT][aA][rR].[gG][zZ] filter=lfs diff=lfs merge=lfs -text lockable
+*.[zZ][iI][pP] filter=lfs diff=lfs merge=lfs -text lockable
+*.[fF]3[zZ] filter=lfs diff=lfs merge=lfs -text lockable
+*.[tT][gG][zZ] filter=lfs diff=lfs merge=lfs -text lockable
+
+#BUILD (Lockable)
+*.[dD][lL][lL] filter=lfs diff=lfs merge=lfs -text lockable
+*.[mM][dD][bB] filter=lfs diff=lfs merge=lfs -text lockable
+*.[pP][dD][bB] filter=lfs diff=lfs merge=lfs -text lockable
+*.[sS][oO] filter=lfs diff=lfs merge=lfs -text lockable
+
+#AUTOMATION (Lockable)
+*.[iI][nN][oO] filter=lfs diff=lfs merge=lfs -text lockable
+*.[aA][cC][dD] filter=lfs diff=lfs merge=lfs -text lockable
+*.[eE][xX][eE] filter=lfs diff=lfs merge=lfs -text lockable
+*.[cC][wW][rR] filter=lfs diff=lfs merge=lfs -text lockable
+*.[lL][aA][bB] filter=lfs diff=lfs merge=lfs -text lockable
+*.[mM][uU][lL][tT][iI][tT][sS][tT] filter=lfs diff=lfs merge=lfs -text lockable
+
+#3D PRINTER MODELS (Lockable)
+*.3[mM][fF] filter=lfs diff=lfs merge=lfs -text lockable

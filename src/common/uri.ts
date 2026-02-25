@@ -16,6 +16,8 @@ import { removeLeadingSlash } from '../azdo/utils';
 import { VersionControlChangeType } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import { FolderRepositoryManager } from '../azdo/folderRepositoryManager';
 import { IRawFileChange } from '../azdo/interface';
+import { spawn } from 'child_process';
+import Logger from './logger';
 
 export interface ReviewUriParams {
 	path: string;
@@ -53,9 +55,114 @@ export interface GitUriOptions {
 }
 
 const ImageMimetypes = ['image/png', 'image/gif', 'image/jpeg', 'image/webp', 'image/tiff', 'image/bmp'];
+const BinaryMimetypes = [
+	'application/pdf',
+	'application/zip',
+	'application/x-zip-compressed',
+	'application/octet-stream'
+];
 
 // a 1x1 pixel transparent gif, from http://png-pixel.com/
 export const EMPTY_IMAGE_URI = Uri.parse(`data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==`);
+
+/**
+ * Check if content is a Git LFS pointer file
+ */
+function isLFSPointer(content: string | Buffer): boolean {
+	const contentStr = Buffer.isBuffer(content) ? content.toString('utf8', 0, Math.min(200, content.length)) : content.substring(0, 200);
+	return contentStr.startsWith('version https://git-lfs.github.com/spec/');
+}
+
+/**
+ * Run content through git lfs smudge filter to get actual file
+ */
+async function smudgeLFSContent(pointerContent: string | Buffer, repoPath: string): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		try {
+			const input = Buffer.isBuffer(pointerContent) ? pointerContent.toString('utf8') : pointerContent;
+			Logger.appendLine(`LFS> Smudging LFS pointer file in ${repoPath}`);
+
+			const child = spawn('git', ['lfs', 'smudge'], {
+				cwd: repoPath,
+			});
+
+			const chunks: Buffer[] = [];
+			const errorChunks: Buffer[] = [];
+
+			if (!child.stdout || !child.stderr || !child.stdin) {
+				reject(new Error('Failed to create child process streams'));
+				return;
+			}
+
+			child.stdout.on('data', (chunk: Buffer) => {
+				chunks.push(chunk);
+			});
+
+			child.stderr.on('data', (chunk: Buffer) => {
+				errorChunks.push(chunk);
+			});
+
+			child.on('error', (error) => {
+				Logger.appendLine(`LFS> Failed to spawn git lfs smudge: ${error}`);
+				reject(error);
+			});
+
+			child.on('close', (code) => {
+				if (code !== 0) {
+					const errorMsg = Buffer.concat(errorChunks).toString('utf8');
+					Logger.appendLine(`LFS> git lfs smudge exited with code ${code}: ${errorMsg}`);
+					reject(new Error(`git lfs smudge exited with code ${code}: ${errorMsg}`));
+				} else {
+					const result = Buffer.concat(chunks);
+					Logger.appendLine(`LFS> Successfully smudged LFS file, size: ${result.length} bytes`);
+					resolve(result);
+				}
+			});
+
+			// Write the pointer content to stdin
+			child.stdin.write(input);
+			child.stdin.end();
+		} catch (error) {
+			Logger.appendLine(`LFS> Exception in smudgeLFSContent: ${error}`);
+			reject(error);
+		}
+	});
+}
+
+/**
+ * Get binary file content as a data URI, handling Git LFS files
+ */
+export async function asBinaryDataURI(uri: Uri, repository: Repository): Promise<Uri | undefined> {
+	try {
+		const { commit, baseCommit, headCommit, isBase } = JSON.parse(uri.query);
+		const ref = uri.scheme === URI_SCHEME_REVIEW ? commit : isBase ? baseCommit : headCommit;
+
+		if (!ref) {
+			return;
+		}
+
+		let contents = await repository.buffer(ref, uri.fsPath);
+
+		// Check if this is a Git LFS pointer and smudge it
+		if (isLFSPointer(contents)) {
+			Logger.appendLine(`LFS> Detected LFS pointer for ${uri.fsPath}`);
+			contents = await smudgeLFSContent(contents, repository.rootUri.fsPath);
+		}
+
+		const { size, object } = await repository.getObjectDetails(ref, uri.fsPath);
+		const { mimetype } = await repository.detectObjectType(object);
+
+		const fileName = pathUtils.basename(uri.fsPath);
+		const base64Content = contents.toString('base64');
+
+		return Uri.parse(
+			`data:${mimetype};label:${fileName};description:${ref};size:${contents.length};base64,${base64Content}`,
+		);
+	} catch (err) {
+		Logger.appendLine(`Error creating binary data URI: ${err}`);
+		return;
+	}
+}
 
 export async function asImageDataURI(uri: Uri, repository: Repository): Promise<Uri | undefined> {
 	try {
@@ -68,13 +175,9 @@ export async function asImageDataURI(uri: Uri, repository: Repository): Promise<
 			return;
 		}
 
-		if (ImageMimetypes.indexOf(mimetype) > -1) {
-			const contents = await repository.buffer(ref, uri.fsPath);
-			return Uri.parse(
-				`data:${mimetype};label:${pathUtils.basename(
-					uri.fsPath,
-				)};description:${ref};size:${size};base64,${contents.toString('base64')}`,
-			);
+		// Handle images and other binary files (like PDFs)
+		if (ImageMimetypes.indexOf(mimetype) > -1 || BinaryMimetypes.indexOf(mimetype) > -1) {
+			return asBinaryDataURI(uri, repository);
 		}
 	} catch (err) {
 		return;

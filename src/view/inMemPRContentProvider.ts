@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { FolderRepositoryManager } from '../azdo/folderRepositoryManager';
 import { IFileChangeNode } from '../azdo/interface';
@@ -11,6 +12,80 @@ import { PullRequestModel } from '../azdo/pullRequestModel';
 import { GitChangeType } from '../common/file';
 import Logger from '../common/logger';
 import { fromPRUri, PRUriParams } from '../common/uri';
+import { spawn } from 'child_process';
+
+// Binary file extensions that cannot be displayed as text
+const BINARY_EXTENSIONS = new Set([
+	'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.tiff', '.tif',
+	'.zip', '.tar', '.gz', '.7z', '.rar', '.iso',
+	'.exe', '.dll', '.so', '.dylib', '.bin',
+	'.mp3', '.mp4', '.wav', '.avi', '.mov', '.wmv', '.flv',
+	'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+	'.jar', '.class', '.pyc'
+]);
+
+function isBinaryFile(filePath: string): boolean {
+	const ext = path.extname(filePath).toLowerCase();
+	return BINARY_EXTENSIONS.has(ext);
+}
+
+function isLFSPointer(content: string): boolean {
+	return content.startsWith('version https://git-lfs.github.com/spec/');
+}
+
+/**
+ * Smudge LFS pointer content to get the actual binary file
+ */
+async function smudgeLFSPointer(pointerContent: string, repoPath: string): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		try {
+			Logger.appendLine(`LFS> Smudging LFS pointer in content provider`);
+
+			const child = spawn('git', ['lfs', 'smudge'], {
+				cwd: repoPath,
+			});
+
+			const chunks: Buffer[] = [];
+			const errorChunks: Buffer[] = [];
+
+			if (!child.stdout || !child.stderr || !child.stdin) {
+				reject(new Error('Failed to create child process streams'));
+				return;
+			}
+
+			child.stdout.on('data', (chunk: Buffer) => {
+				chunks.push(chunk);
+			});
+
+			child.stderr.on('data', (chunk: Buffer) => {
+				errorChunks.push(chunk);
+			});
+
+			child.on('error', (error) => {
+				Logger.appendLine(`LFS> Failed to spawn git lfs smudge: ${error}`);
+				reject(error);
+			});
+
+			child.on('close', (code) => {
+				if (code !== 0) {
+					const errorMsg = Buffer.concat(errorChunks).toString('utf8');
+					Logger.appendLine(`LFS> git lfs smudge exited with code ${code}: ${errorMsg}`);
+					reject(new Error(`git lfs smudge failed: ${errorMsg}`));
+				} else {
+					const result = Buffer.concat(chunks);
+					Logger.appendLine(`LFS> Successfully smudged LFS pointer, size: ${result.length} bytes`);
+					resolve(result);
+				}
+			});
+
+			child.stdin.write(pointerContent);
+			child.stdin.end();
+		} catch (error) {
+			Logger.appendLine(`LFS> Exception in smudgeLFSPointer: ${error}`);
+			reject(error);
+		}
+	});
+}
 
 export class InMemPRContentProvider implements vscode.TextDocumentContentProvider {
 	private _onDidChange = new vscode.EventEmitter<vscode.Uri>();
@@ -64,12 +139,26 @@ export async function provideDocumentContentForChangeModel(params: PRUriParams, 
 		return '';
 	}
 
+	// Check if this is a binary file that cannot be displayed as text
+	if (isBinaryFile(fileChange.fileName)) {
+		Logger.appendLine(`PR> Binary file detected: ${fileChange.fileName}, cannot display as text`);
+		// Return empty content - user should use diff view or open locally
+		return '';
+	}
+
 	if (isFileRemote) {
 		try {
 			const sha = params.isBase ? fileChange.previousFileSha : fileChange.sha ?? fileChange.sha;
 			Logger.appendLine(`PR> Fetching file content from AzDO: ${sha}`);
 			const content = await pullRequestModel.getFile(sha);
 			Logger.debug(`PR> Fetched file content from AzDO: ${sha}, content: ${content}`, 'InMemPRContentProvider');
+
+			// Check if the content is a Git LFS pointer
+			if (isLFSPointer(content)) {
+				Logger.appendLine(`PR> Git LFS pointer detected for remote file: ${fileChange.fileName}`);
+				return '';
+			}
+
 			return content;
 		} catch (e) {
 			Logger.appendLine(`PR> Fetching file content failed: ${e}`);
@@ -91,6 +180,13 @@ export async function provideDocumentContentForChangeModel(params: PRUriParams, 
 			const originalFilePath = vscode.Uri.joinPath(folderReposManager.repository.rootUri, originalFileName!);
 			const commit = params.headCommit;
 			const originalContent = await folderReposManager.repository.show(commit, originalFilePath.fsPath);
+
+			// Check for LFS pointer
+			if (isLFSPointer(originalContent)) {
+				Logger.appendLine(`PR> Git LFS pointer detected for ADD file: ${fileChange.fileName}`);
+				return '';
+			}
+
 			return originalContent;
 		} else if (fileChange.status === GitChangeType.RENAME) {
 			let commit = params.baseCommit;
@@ -102,6 +198,13 @@ export async function provideDocumentContentForChangeModel(params: PRUriParams, 
 
 			const originalFilePath = vscode.Uri.joinPath(folderReposManager.repository.rootUri, originalFileName!);
 			const originalContent = await folderReposManager.repository.show(commit, originalFilePath.fsPath);
+
+			// Check for LFS pointer
+			if (isLFSPointer(originalContent)) {
+				Logger.appendLine(`PR> Git LFS pointer detected for RENAME file: ${fileChange.fileName}`);
+				return '';
+			}
+
 			return originalContent;
 		} else {
 			const originalFileName =
@@ -112,12 +215,14 @@ export async function provideDocumentContentForChangeModel(params: PRUriParams, 
 				commit = params.headCommit;
 			}
 			const originalContent = await folderReposManager.repository.show(commit, originalFilePath.fsPath);
+
+			// Check for LFS pointer
+			if (isLFSPointer(originalContent)) {
+				Logger.appendLine(`PR> Git LFS pointer detected for file: ${fileChange.fileName}`);
+				return '';
+			}
+
 			return originalContent;
-			// if (params.isBase) {
-			// 	return originalContent;
-			// } else {
-			// 	return getModifiedContentFromDiffHunkAzdo(originalContent, fileChange.diffHunks);
-			// }
 		}
 	}
 

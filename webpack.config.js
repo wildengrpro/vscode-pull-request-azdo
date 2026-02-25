@@ -19,23 +19,9 @@ const TerserPlugin = require('terser-webpack-plugin');
 const webpack = require('webpack');
 
 async function resolveTSConfig(configFile) {
-	const data = await new Promise((resolve, reject) => {
-		execFile(
-			'yarn',
-			['tsc', `-p ${configFile}`, '--showConfig'],
-			{ cwd: __dirname, encoding: 'utf8', shell: true },
-			function (error, stdout, stderr) {
-				if (error != null) {
-					reject(error);
-				}
-
-				resolve(stdout);
-			},
-		);
-	});
-
-	const index = data.indexOf('\n');
-	const json = JSON5.parse(data.substr(index + 1));
+	const fs = require('fs').promises;
+	const data = await fs.readFile(configFile, 'utf8');
+	const json = JSON5.parse(data);
 	return json;
 }
 
@@ -357,6 +343,7 @@ async function getExtensionConfig(target, mode, env) {
 		},
 		externals: {
 			vscode: 'commonjs vscode',
+			'child_process': 'commonjs child_process',
 			// 'utf-8-validate': 'utf-8-validate',
 			// 'bufferutil': 'bufferutil',
 			// 'encoding': 'encoding',
