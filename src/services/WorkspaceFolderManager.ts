@@ -6,6 +6,9 @@
 import * as vscode from 'vscode';
 import Logger from '../common/logger';
 
+// TODO: Add unit tests for folder add/remove event handling
+// TODO: Add tests for multi-root detection logic
+
 /**
  * Manages workspace folders and emits events when folders are added or removed.
  * Provides API for querying current workspace folder state.

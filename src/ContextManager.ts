@@ -11,6 +11,10 @@ import { GitContextExtractor } from './services/GitContextExtractor';
 import { WorkspaceFolderManager } from './services/WorkspaceFolderManager';
 import { FolderContext, WorkspaceContext } from './types/FolderContext';
 
+// TODO: Add unit tests for ContextManager initialization and folder lifecycle
+// TODO: Add integration tests for multi-root workspace scenarios
+// TODO: Add test hooks for context extraction mocking
+
 /**
  * Orchestrates multi-root workspace support by coordinating:
  * - WorkspaceFolderManager: tracks folder add/remove

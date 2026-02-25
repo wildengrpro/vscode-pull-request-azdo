@@ -10,6 +10,10 @@ import { parseRepositoryRemotes } from '../common/remote';
 import { SETTINGS_NAMESPACE } from '../constants';
 import { ContextExtractionResult } from '../types/FolderContext';
 
+// TODO: Add unit tests for URL parsing logic with various remote formats
+// TODO: Add tests for fallback chain (git remote -> settings)
+// TODO: Add test cases for edge cases (no remotes, invalid URLs, etc.)
+
 /**
  * Extracts Azure DevOps organization and project context from git remotes and settings.
  * Implements a fallback chain: GitApiImpl -> VS Code git extension API -> shell command.

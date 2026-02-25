@@ -6,6 +6,10 @@
 import { Azdo } from '../azdo/credentials';
 import Logger from '../common/logger';
 
+// TODO: Add unit tests for client caching logic
+// TODO: Add tests for token expiration handling
+// TODO: Add tests for cache invalidation scenarios
+
 /**
  * Factory for creating and caching org-level Azure DevOps API client instances.
  * Each unique organization gets its own cached Azdo instance.
