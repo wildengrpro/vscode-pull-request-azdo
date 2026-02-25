@@ -190,7 +190,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<GitApi
 	Resource.initialize(context);
 	const apiImpl = new GitApiImpl();
 
-	const version = vscode.extensions.getExtension(EXTENSION_ID)!.packageJSON.version;
+	const version = context.extension.packageJSON.version;
 	telemetry = new TelemetryReporter(EXTENSION_ID, version, aiKey);
 	context.subscriptions.push(telemetry);
 
@@ -223,11 +223,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<GitApi
 	Logger.appendLine('Initializing ContextManager for multi-root support...');
 	const contextManager = new ContextManager(apiImpl);
 	context.subscriptions.push(contextManager);
-	
+
 	// Initialize returns immediately after folder detection
 	// Context extraction happens in background
 	await contextManager.initialize();
-	
+
 	// Log workspace context info
 	const workspaceContext = contextManager.getWorkspaceContext();
 	Logger.appendLine(

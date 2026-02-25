@@ -13,10 +13,14 @@ import { removeLeadingSlash } from '../../azdo/utils';
 import { ViewedState } from '../../common/comment';
 import { DiffHunk } from '../../common/diffHunk';
 import { GitChangeType } from '../../common/file';
-import { asImageDataURI, EMPTY_IMAGE_URI, toResourceUri } from '../../common/uri';
+import { fromPRUri, toResourceUri } from '../../common/uri';
 import { FileViewedDecorationProvider } from '../fileViewedDecorationProvider';
 import { DecorationProvider } from '../treeDecorationProvider';
 import { TreeNode, TreeNodeParent } from './treeNode';
+import Logger from '../../common/logger';
+import * as os from 'os';
+import * as fs from 'fs';
+import { spawn } from 'child_process';
 
 /**
  * File change node whose content can not be resolved locally and we direct users to GitHub.
@@ -192,30 +196,182 @@ export class FileChangeNode extends TreeNode implements vscode.TreeItem {
 		return this;
 	}
 
+	private async getFileContentWithLFSSmudge(
+		commit: string,
+		filePath: string,
+		folderManager: FolderRepositoryManager,
+	): Promise<Buffer> {
+		try {
+			// Get raw content from git
+			const content = await folderManager.repository.buffer(commit, filePath);
+
+			// Check if it's an LFS pointer
+			const contentStr = content.toString('utf8', 0, Math.min(200, content.length));
+			if (contentStr.startsWith('version https://git-lfs.github.com/spec/')) {
+				Logger.appendLine(`LFS> Detected LFS pointer, smudging: ${filePath}`);
+
+				// Smudge the LFS pointer to get actual content
+				const smudged = await this.smudgeLFSPointer(contentStr, folderManager.repository.rootUri.fsPath);
+				return smudged;
+			}
+
+			return content;
+		} catch (error) {
+			Logger.appendLine(`Error getting file content: ${error}`);
+			throw error;
+		}
+	}
+
+	private smudgeLFSPointer(pointerContent: string, repoPath: string): Promise<Buffer> {
+		return new Promise((resolve, reject) => {
+			try {
+				const child = spawn('git', ['lfs', 'smudge'], {
+					cwd: repoPath,
+				});
+
+				const chunks: Buffer[] = [];
+				const errorChunks: Buffer[] = [];
+
+				if (!child.stdout || !child.stderr || !child.stdin) {
+					reject(new Error('Failed to create child process streams'));
+					return;
+				}
+
+				child.stdout.on('data', (chunk: Buffer) => {
+					chunks.push(chunk);
+				});
+
+				child.stderr.on('data', (chunk: Buffer) => {
+					errorChunks.push(chunk);
+				});
+
+				child.on('error', (error) => {
+					Logger.appendLine(`LFS> Failed to spawn git lfs smudge: ${error}`);
+					reject(error);
+				});
+
+				child.on('close', (code) => {
+					if (code !== 0) {
+						const errorMsg = Buffer.concat(errorChunks).toString('utf8');
+						Logger.appendLine(`LFS> git lfs smudge exited with code ${code}: ${errorMsg}`);
+						reject(new Error(`git lfs smudge failed: ${errorMsg}`));
+					} else {
+						const result = Buffer.concat(chunks);
+						Logger.appendLine(`LFS> Successfully smudged LFS file, size: ${result.length} bytes`);
+						resolve(result);
+					}
+				});
+
+				child.stdin.write(pointerContent);
+				child.stdin.end();
+			} catch (error) {
+				Logger.appendLine(`LFS> Exception in smudgeLFSPointer: ${error}`);
+				reject(error);
+			}
+		});
+	}
+
 	async openDiff(folderManager: FolderRepositoryManager): Promise<void> {
 		const parentFilePath = this.parentFilePath;
 		const filePath = this.filePath;
 		const opts = this.opts;
 
-		let parentURI = (await asImageDataURI(parentFilePath, folderManager.repository)) || parentFilePath;
-		let headURI = (await asImageDataURI(filePath, folderManager.repository)) || filePath;
-		if (parentURI.scheme === 'data' || headURI.scheme === 'data') {
-			if (this.status === GitChangeType.ADD) {
-				parentURI = EMPTY_IMAGE_URI;
-			}
-			if (this.status === GitChangeType.DELETE) {
-				headURI = EMPTY_IMAGE_URI;
-			}
-		}
+		try {
+			// For PR view (pr_azdo scheme), use temp files for binary handling
+			// For Review mode (review scheme), use data URIs
+			if (filePath.scheme === 'pr_azdo') {
+				// PR view: use proper commit-based retrieval with temp files
+				const params = fromPRUri(filePath);
+				const parentParams = fromPRUri(parentFilePath);
 
-		const pathSegments = filePath.path.split('/');
-		vscode.commands.executeCommand(
-			'vscode.diff',
-			parentURI,
-			headURI,
-			`${pathSegments[pathSegments.length - 1]} (Pull Request)`,
-			opts,
-		);
+				if (!params || !parentParams) {
+					Logger.appendLine('Could not parse PR URI parameters');
+					return;
+				}
+
+				const headContent = await this.getFileContentWithLFSSmudge(
+					params.headCommit,
+					filePath.fsPath,
+					folderManager
+				);
+
+				// For base file, handle different statuses
+				let parentContent: Buffer;
+				if (this.status === GitChangeType.ADD) {
+					parentContent = Buffer.alloc(0); // Empty file for ADD
+				} else if (this.status === GitChangeType.DELETE) {
+					parentContent = headContent; // Use same content for DELETE show
+				} else {
+					parentContent = await this.getFileContentWithLFSSmudge(
+						parentParams.headCommit,
+						parentFilePath.fsPath,
+						folderManager
+					);
+				}
+
+				// Create temp files for binary content
+				const tempDir = os.tmpdir();
+				const fileName = path.basename(filePath.fsPath);
+				const fileExt = path.extname(fileName);
+
+				const parentTempFile = path.join(tempDir, `parent_${Date.now()}${fileExt}`);
+				const headTempFile = path.join(tempDir, `head_${Date.now()}${fileExt}`);
+
+				// Write content to temp files
+				if (parentContent.length > 0) {
+					fs.writeFileSync(parentTempFile, parentContent);
+				} else {
+					fs.writeFileSync(parentTempFile, '');
+				}
+				fs.writeFileSync(headTempFile, headContent);
+
+				// Convert to URIs
+				const parentURI = vscode.Uri.file(parentTempFile);
+				const headURI = vscode.Uri.file(headTempFile);
+
+				// Open diff with the actual binary files
+				vscode.commands.executeCommand(
+					'vscode.diff',
+					parentURI,
+					headURI,
+					`${fileName} (Pull Request)`,
+					opts,
+				);
+
+				// Clean up temp files after a delay (user should have them open by then)
+				setTimeout(() => {
+					try {
+						if (fs.existsSync(parentTempFile)) fs.unlinkSync(parentTempFile);
+						if (fs.existsSync(headTempFile)) fs.unlinkSync(headTempFile);
+					} catch (e) {
+						// Ignore cleanup errors
+					}
+				}, 30000); // 30 seconds
+			} else if (filePath.scheme === 'review') {
+				// Review mode: use URIs directly (review scheme supports binary content)
+				vscode.commands.executeCommand(
+					'vscode.diff',
+					parentFilePath,
+					filePath,
+					`${path.basename(filePath.fsPath)} (Review)`,
+					opts,
+				);
+			} else if (filePath.scheme === 'file') {
+				// Checkout/Review mode with local files: open diff with file URIs directly
+				vscode.commands.executeCommand(
+					'vscode.diff',
+					parentFilePath,
+					filePath,
+					`${path.basename(filePath.fsPath)} (Checkout)`,
+					opts,
+				);
+			} else {
+				Logger.appendLine(`Unknown URI scheme: ${filePath.scheme}`);
+			}
+		} catch (error) {
+			Logger.appendLine(`Error opening diff: ${error}`);
+			vscode.window.showErrorMessage(`Failed to open file: ${error}`);
+		}
 	}
 }
 

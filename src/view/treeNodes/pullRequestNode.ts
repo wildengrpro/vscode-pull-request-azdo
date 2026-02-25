@@ -347,13 +347,30 @@ export class PRNode extends TreeNode {
 	private async provideDocumentContent(uri: vscode.Uri): Promise<string> {
 		const params = fromPRUri(uri);
 		if (!params) {
+			Logger.appendLine(`PR> Invalid URI format: ${uri.toString()}`);
 			return '';
 		}
 
 		const allFileChanges = await this.getFileChanges();
-		const fileChange = allFileChanges.find(contentChange => contentChange.fileName === params.fileName);
+
+		// Try to find the file change by matching the URI path
+		// This works even if fileName is empty in the params
+		let fileChange = allFileChanges.find(contentChange => {
+			// Match by the file path in the URI
+			const contentPath = contentChange.filePath.path;
+			const uriPath = uri.path;
+			return contentPath === uriPath || contentChange.parentFilePath.path === uriPath;
+		});
+
+		// If not found by path, try by fileName if it exists
+		if (!fileChange && params.fileName) {
+			fileChange = allFileChanges.find(contentChange => contentChange.fileName === params.fileName);
+		}
+
 		if (!fileChange) {
 			Logger.appendLine(`PR> can not find content for document ${uri.toString()}`);
+			Logger.appendLine(`PR> URI path: ${uri.path}`);
+			Logger.appendLine(`PR> Available files: ${allFileChanges.map(f => `${f.fileName} (${f.filePath.path})`).join('; ')}`);
 			return '';
 		}
 
