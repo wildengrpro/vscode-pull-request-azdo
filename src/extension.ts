@@ -24,6 +24,7 @@ import { Resource } from './common/resources';
 import { handler as uriHandler } from './common/uri';
 import { onceEvent } from './common/utils';
 import { EXTENSION_ID, SETTINGS_NAMESPACE, URI_SCHEME_PR } from './constants';
+import { ContextManager } from './ContextManager';
 import { registerBuiltinGitProvider, registerLiveShareGitProvider } from './gitProviders/api';
 import { MockGitProvider } from './gitProviders/mockGitProvider';
 import { FileTypeDecorationProvider } from './view/fileTypeDecorationProvider';
@@ -216,6 +217,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<GitApi
 	context.subscriptions.push(apiImpl);
 
 	Logger.appendLine('Looking for git repository');
+
+	// Initialize ContextManager for multi-root workspace support
+	// Hybrid pattern: sync folder detection, async context extraction
+	Logger.appendLine('Initializing ContextManager for multi-root support...');
+	const contextManager = new ContextManager(apiImpl);
+	context.subscriptions.push(contextManager);
+	
+	// Initialize returns immediately after folder detection
+	// Context extraction happens in background
+	await contextManager.initialize();
+	
+	// Log workspace context info
+	const workspaceContext = contextManager.getWorkspaceContext();
+	Logger.appendLine(
+		`Workspace has ${workspaceContext.folders.size} folder(s). Multi-root: ${contextManager.isMultiRoot()}`
+	);
 
 	const prTree = new PullRequestsTreeDataProvider(telemetry);
 	context.subscriptions.push(prTree);

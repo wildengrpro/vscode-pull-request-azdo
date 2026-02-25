@@ -93,8 +93,10 @@ export class AzdoRepository implements vscode.Disposable {
 			return this._metadata;
 		}
 
-		Logger.debug(`Searching for repos in ${this._hub?.projectName} project`, AzdoRepository.ID);
-		const repos = await gitApi?.getRepositories(this._hub?.projectName);
+		// Get projectName from credential store (backward compatibility)
+		const projectName = this._credentialStore.getProjectName();
+		Logger.debug(`Searching for repos in ${projectName} project`, AzdoRepository.ID);
+		const repos = await gitApi?.getRepositories(projectName);
 
 		Logger.debug(
 			`Found ${repos?.length} repos. Searching for repo with name ${this.remote.repositoryName}`,

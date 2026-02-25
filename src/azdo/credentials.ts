@@ -21,12 +21,16 @@ class AzdoOrgConfig {
 	constructor(public orgUrl: string, public projectName: string) {}
 }
 
+/**
+ * Org-level Azure DevOps API client.
+ * Does NOT hold projectName - callers should provide project as a parameter to API calls.
+ */
 export class Azdo {
 	private _authHandler: IRequestHandler;
 	public connection: azdev.WebApi;
 	public authenticatedUser: Identity | undefined;
 
-	constructor(public orgUrl: string, public projectName: string, private token: string, private isPatTokenAuth: boolean = false) {
+	constructor(public orgUrl: string, private token: string, private isPatTokenAuth: boolean = false) {
 		if (isPatTokenAuth) {
 			this._authHandler = azdev.getPersonalAccessTokenHandler(token, true);
 		} else {
@@ -108,6 +112,16 @@ export class CredentialStore implements vscode.Disposable {
 		return this._azdoAPI;
 	}
 
+	/**
+	 * Gets the project name from the cached org config.
+	 * For backward compatibility with existing code that needs projectName.
+	 * 
+	 * @returns The project name or undefined
+	 */
+	public getProjectName(): string | undefined {
+		return this.orgConfig?.projectName;
+	}
+
 	public async logout(): Promise<void> {
 		this._azdoAPI = undefined;
 	}
@@ -182,6 +196,9 @@ export class CredentialStore implements vscode.Disposable {
 			return undefined;
 		}
 
+		// Store orgConfig for later use (backward compatibility)
+		this.orgConfig = orgConfig;
+
 		let retry: boolean = true;
 
 		while (retry) {
@@ -210,7 +227,9 @@ export class CredentialStore implements vscode.Disposable {
 					isPatTokenAuth = false;
 				}
 
-				const azdo = new Azdo(orgConfig.orgUrl, orgConfig.projectName, token, isPatTokenAuth);
+				// Create org-level Azdo instance (projectName is not stored here)
+				// Note: orgConfig.projectName is still available for callers via getOrgConfig()
+				const azdo = new Azdo(orgConfig.orgUrl, token, isPatTokenAuth);
 				azdo.authenticatedUser = (await azdo.connection.connect()).authenticatedUser;
 
 				Logger.debug(`Auth> Successful: Logged userid: ${azdo?.authenticatedUser?.id}`, CredentialStore.ID);
