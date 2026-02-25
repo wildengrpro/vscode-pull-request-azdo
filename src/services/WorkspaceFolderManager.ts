@@ -47,7 +47,7 @@ this._onDidRemoveFolder.fire(folder);
  * 
  * @returns Array of workspace folders (empty if no workspace is open)
  */
-getWorkspaceFolders(): vscode.WorkspaceFolder[] {
+getWorkspaceFolders(): readonly vscode.WorkspaceFolder[] {
 return vscode.workspace.workspaceFolders || [];
 }
 

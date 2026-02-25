@@ -103,7 +103,7 @@ Logger.appendLine('ContextManager initialized (context extraction in progress)',
  * 
  * @param folders Array of workspace folders to process
  */
-private async _extractContextForAllFolders(folders: vscode.WorkspaceFolder[]): Promise<void> {
+private async _extractContextForAllFolders(folders: readonly vscode.WorkspaceFolder[]): Promise<void> {
 Logger.appendLine(`Starting context extraction for ${folders.length} folder(s)...`, ContextManager.ID);
 
 // Extract context for all folders in parallel

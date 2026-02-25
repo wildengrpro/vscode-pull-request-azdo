@@ -62,6 +62,16 @@ export class AzdoRepository implements vscode.Disposable {
 		return this._hub;
 	}
 
+	/**
+	 * Gets the project name from the credential store.
+	 * For backward compatibility with code that needs projectName.
+	 * 
+	 * @returns The project name or undefined
+	 */
+	public getProjectName(): string | undefined {
+		return this._credentialStore.getProjectName();
+	}
+
 	public async ensureCommentsController(): Promise<void> {
 		try {
 			if (this.commentsController) {
