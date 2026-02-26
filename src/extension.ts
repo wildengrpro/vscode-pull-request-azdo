@@ -31,7 +31,9 @@ import { FileTypeDecorationProvider } from './view/fileTypeDecorationProvider';
 import { getInMemPRContentProvider } from './view/inMemPRContentProvider';
 import { PullRequestChangesTreeDataProvider } from './view/prChangesTreeDataProvider';
 import { PullRequestsTreeDataProvider } from './view/prsTreeDataProvider';
-import { ReviewManager } from './view/reviewManager';
+import { CheckoutManager } from './view/checkoutManager';
+import { ReviewCommentManager } from './view/reviewCommentManager';
+import { PRDataManager } from './view/prDataManager';
 import { ReviewsManager } from './view/reviewsManager';
 
 const aiKey: string = '6d22c8ed-52c8-4779-a6f8-09c748e18e95';
@@ -70,8 +72,8 @@ async function init(
 	vscode.authentication.onDidChangeSessions(async (e) => {
 		if (e.provider.id === 'microsoft') {
 			await reposManager.clearCredentialCache();
-			if (reviewManagers) {
-				reviewManagers.forEach(reviewManager => reviewManager.updateState());
+			if (checkoutManagers) {
+				checkoutManagers.forEach(manager => manager.updateState());
 			}
 		}
 	});
@@ -121,19 +123,76 @@ async function init(
 	});
 	const changesTree = new PullRequestChangesTreeDataProvider(context);
 	context.subscriptions.push(changesTree);
-	const reviewManagers = folderManagers.map(
-		folderManager => new ReviewManager(context, folderManager.repository, folderManager, telemetry, changesTree),
-	);
-	const reviewsManager = new ReviewsManager(context, reposManager, reviewManagers, tree, changesTree, telemetry, git);
+
+	// Initialize three independent manager arrays
+	const checkoutManagers: CheckoutManager[] = [];
+	const commentManagers: ReviewCommentManager[] = [];
+	const dataManagers: PRDataManager[] = [];
+
+	for (const folderManager of folderManagers) {
+		const checkoutManager = new CheckoutManager(context, folderManager.repository, folderManager, telemetry);
+		const commentManager = new ReviewCommentManager(folderManager.repository, folderManager, telemetry);
+		const dataManager = new PRDataManager(folderManager.repository, folderManager, changesTree);
+
+		checkoutManagers.push(checkoutManager);
+		commentManagers.push(commentManager);
+		dataManagers.push(dataManager);
+
+		context.subscriptions.push(checkoutManager, commentManager, dataManager);
+
+			// Subscribe to PR activation to initialize comment and data managers
+		context.subscriptions.push(
+			folderManager.onDidChangeActivePullRequest(async () => {
+				const pr = folderManager.activePullRequest;
+				if (pr) {
+					try {
+						// First fetch comments from the PR
+						Logger.appendLine(`Extension> Fetching comments for PR #${pr.getPullRequestId()}`);
+						await commentManager.fetchComments(pr);
+						const comments = commentManager.comments;
+
+						// Get PR data (file changes) with the fetched comments
+						const prData = await dataManager.getPullRequestData(pr, comments);
+						const { localFileChanges, obsoleteFileChanges } = prData;
+
+						// Initialize comment manager with the PR and file changes
+						Logger.appendLine(`Extension> Initializing comment controller for PR #${pr.getPullRequestId()} with ${localFileChanges.length} files`);
+						await commentManager.initialize(pr, localFileChanges);
+
+						// Update comment manager with file changes
+						await commentManager.update(localFileChanges, obsoleteFileChanges);
+
+						Logger.appendLine(`Extension> Initialized comment and data managers for PR #${pr.getPullRequestId()}`);
+					} catch (e) {
+						Logger.appendLine(`Extension> Failed to initialize managers for PR: ${e}`);
+					}
+				} else {
+					// PR deactivated
+					Logger.appendLine('Extension> PR deactivated');
+				}
+			}),
+		);
+	}
+
+	const reviewsManager = new ReviewsManager(context, reposManager, checkoutManagers, tree, changesTree, telemetry, git);
 	context.subscriptions.push(reviewsManager);
 	tree.initialize(reposManager);
-	registerCommands(context, reposManager, reviewManagers, workItem, userManager, telemetry, credentialStore, tree);
+	registerCommands(context, reposManager, checkoutManagers, commentManagers, dataManagers, workItem, userManager, telemetry, credentialStore, tree);
 	const layout = vscode.workspace.getConfiguration(SETTINGS_NAMESPACE).get<string>('fileListLayout');
 	await vscode.commands.executeCommand('setContext', 'fileListLayout:flat', layout === 'flat');
 
+	// Debounce git state changes to avoid excessive validation calls
+	let gitStateTimeout: NodeJS.Timeout | undefined;
 	git.onDidChangeState(() => {
-		reviewManagers.forEach(reviewManager => reviewManager.updateState());
+		if (gitStateTimeout) {
+			clearTimeout(gitStateTimeout);
+		}
+		gitStateTimeout = setTimeout(() => {
+			Logger.appendLine('Extension> Git state changed, validating checkout state...');
+			checkoutManagers.forEach(manager => manager.updateState(true));
+		}, 1000);
 	});
+	context.subscriptions.push({ dispose: () => { if (gitStateTimeout) clearTimeout(gitStateTimeout); } });
 
 	git.onDidOpenRepository(repo => {
 		const disposable = repo.state.onDidChange(() => {
@@ -145,14 +204,50 @@ async function init(
 				fileReviewedStatusService,
 			);
 			reposManager.insertFolderManager(newFolderManager);
-			const newReviewManager = new ReviewManager(
-				context,
-				newFolderManager.repository,
-				newFolderManager,
-				telemetry,
-				changesTree,
+
+			// Create the three independent managers for the new repository
+			const newCheckoutManager = new CheckoutManager(context, newFolderManager.repository, newFolderManager, telemetry);
+			const newCommentManager = new ReviewCommentManager(newFolderManager.repository, newFolderManager, telemetry);
+			const newDataManager = new PRDataManager(newFolderManager.repository, newFolderManager, changesTree);
+
+			checkoutManagers.push(newCheckoutManager);
+			commentManagers.push(newCommentManager);
+			dataManagers.push(newDataManager);
+
+			context.subscriptions.push(newCheckoutManager, newCommentManager, newDataManager);
+
+			// Subscribe to PR activation for the new repository
+			context.subscriptions.push(
+				newFolderManager.onDidChangeActivePullRequest(async () => {
+					const pr = newFolderManager.activePullRequest;
+					if (pr) {
+						try {
+							// First fetch comments from the PR
+							Logger.appendLine(`Extension> Fetching comments for PR #${pr.getPullRequestId()} in new repo`);
+							await newCommentManager.fetchComments(pr);
+							const comments = newCommentManager.comments;
+
+							// Get PR data (file changes) with the fetched comments
+							const prData = await newDataManager.getPullRequestData(pr, comments);
+							const { localFileChanges, obsoleteFileChanges } = prData;
+
+							// Initialize comment manager with the PR and file changes
+							Logger.appendLine(`Extension> Initializing comment controller for PR #${pr.getPullRequestId()} with ${localFileChanges.length} files`);
+							await newCommentManager.initialize(pr, localFileChanges);
+
+							// Update comment manager with file changes
+							await newCommentManager.update(localFileChanges, obsoleteFileChanges);
+
+							Logger.appendLine(`Extension> Initialized comment and data managers for PR #${pr.getPullRequestId()}`);
+						} catch (e) {
+							Logger.appendLine(`Extension> Failed to initialize managers for PR: ${e}`);
+						}
+					} else {
+						// PR deactivated
+						Logger.appendLine('Extension> PR deactivated');
+					}
+				}),
 			);
-			reviewManagers.push(newReviewManager);
 			tree.refresh();
 			disposable.dispose();
 		});
@@ -161,13 +256,22 @@ async function init(
 	git.onDidCloseRepository(repo => {
 		reposManager.removeRepo(repo);
 
-		const reviewManagerIndex = reviewManagers.findIndex(
+		const checkoutIndex = checkoutManagers.findIndex(
 			manager => manager.repository.rootUri.toString() === repo.rootUri.toString(),
 		);
-		if (reviewManagerIndex) {
-			const manager = reviewManagers[reviewManagerIndex];
-			reviewManagers.splice(reviewManagerIndex);
-			manager.dispose();
+		if (checkoutIndex >= 0) {
+			const checkoutManager = checkoutManagers[checkoutIndex];
+			const commentManager = commentManagers[checkoutIndex];
+			const dataManager = dataManagers[checkoutIndex];
+
+			Logger.appendLine(`Extension> Closing repository ${repo.rootUri.fsPath}`);
+			checkoutManagers.splice(checkoutIndex, 1);
+			commentManagers.splice(checkoutIndex, 1);
+			dataManagers.splice(checkoutIndex, 1);
+
+			checkoutManager.dispose();
+			commentManager.dispose();
+			dataManager.dispose();
 		}
 
 		tree.refresh();

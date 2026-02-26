@@ -18,9 +18,9 @@ import { FileViewedDecorationProvider } from '../fileViewedDecorationProvider';
 import { DecorationProvider } from '../treeDecorationProvider';
 import { TreeNode, TreeNodeParent } from './treeNode';
 import Logger from '../../common/logger';
+import { spawn } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
-import { spawn } from 'child_process';
 
 /**
  * File change node whose content can not be resolved locally and we direct users to GitHub.
@@ -271,28 +271,90 @@ export class FileChangeNode extends TreeNode implements vscode.TreeItem {
 		});
 	}
 
+	private isBinaryFile(fileName: string): boolean {
+		const binaryExtensions = [
+			'.pdf', '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
+			'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico',
+			'.zip', '.tar', '.gz', '.7z', '.rar',
+			'.exe', '.dll', '.so', '.o',
+			'.bin', '.dat', '.iso',
+		];
+		const ext = path.extname(fileName).toLowerCase();
+		return binaryExtensions.includes(ext);
+	}
+
+	private isLFSPointer(content: Buffer): boolean {
+		const contentStr = content.toString('utf8', 0, Math.min(200, content.length));
+		return contentStr.startsWith('version https://git-lfs.github.com/spec/');
+	}
+
+	private async isLFSTrackedFile(fileName: string, folderManager: FolderRepositoryManager): Promise<boolean> {
+		try {
+			// Use git check-attr to determine if file is tracked by LFS
+			const child = spawn('git', ['check-attr', 'filter', fileName], {
+				cwd: folderManager.repository.rootUri.fsPath,
+			});
+
+			let output = '';
+			let errorOutput = '';
+
+			if (!child.stdout || !child.stderr) {
+				return false;
+			}
+
+			child.stdout.on('data', (chunk: Buffer) => {
+				output += chunk.toString('utf8');
+			});
+
+			child.stderr.on('data', (chunk: Buffer) => {
+				errorOutput += chunk.toString('utf8');
+			});
+
+			return new Promise((resolve) => {
+				child.on('close', (code) => {
+					if (code === 0 && output.includes('filter: lfs')) {
+						Logger.appendLine(`FileChangeNode> Git LFS tracked file detected: ${fileName}`);
+						resolve(true);
+					} else {
+						resolve(false);
+					}
+				});
+
+				child.on('error', (error) => {
+					Logger.appendLine(`FileChangeNode> Error checking git attributes: ${error}`);
+					resolve(false);
+				});
+			});
+		} catch (error) {
+			Logger.appendLine(`FileChangeNode> Exception in isLFSTrackedFile: ${error}`);
+			return false;
+		}
+	}
+
 	async openDiff(folderManager: FolderRepositoryManager): Promise<void> {
-		const parentFilePath = this.parentFilePath;
-		const filePath = this.filePath;
+		const fileName = path.basename(this.filePath.fsPath);
 		const opts = this.opts;
 
 		try {
-			// For PR view (pr_azdo scheme), use temp files for binary handling
-			// For Review mode (review scheme), use data URIs
-			if (filePath.scheme === 'pr_azdo') {
-				// PR view: use proper commit-based retrieval with temp files
-				const params = fromPRUri(filePath);
-				const parentParams = fromPRUri(parentFilePath);
+			// Check if file is tracked by Git LFS using git attributes
+			const isLFS = await this.isLFSTrackedFile(fileName, folderManager);
+
+			if (isLFS) {
+				// LFS file: use temp files to display the actual smudged content
+				Logger.appendLine(`FileChangeNode> File is Git LFS tracked, using temp files: ${fileName}`);
+
+				const params = fromPRUri(this.filePath);
+				const parentParams = fromPRUri(this.parentFilePath);
 
 				if (!params || !parentParams) {
 					Logger.appendLine('Could not parse PR URI parameters');
 					return;
 				}
 
-				const headContent = await this.getFileContentWithLFSSmudge(
+				// Get actual content from git (already smudged by git automatically)
+				const headContent = await folderManager.repository.buffer(
 					params.headCommit,
-					filePath.fsPath,
-					folderManager
+					this.filePath.fsPath,
 				);
 
 				// For base file, handle different statuses
@@ -302,34 +364,28 @@ export class FileChangeNode extends TreeNode implements vscode.TreeItem {
 				} else if (this.status === GitChangeType.DELETE) {
 					parentContent = headContent; // Use same content for DELETE show
 				} else {
-					parentContent = await this.getFileContentWithLFSSmudge(
+					parentContent = await folderManager.repository.buffer(
 						parentParams.headCommit,
-						parentFilePath.fsPath,
-						folderManager
+						this.parentFilePath.fsPath,
 					);
 				}
 
-				// Create temp files for binary content
+				// Create temp files for the actual content
 				const tempDir = os.tmpdir();
-				const fileName = path.basename(filePath.fsPath);
 				const fileExt = path.extname(fileName);
 
 				const parentTempFile = path.join(tempDir, `parent_${Date.now()}${fileExt}`);
 				const headTempFile = path.join(tempDir, `head_${Date.now()}${fileExt}`);
 
 				// Write content to temp files
-				if (parentContent.length > 0) {
-					fs.writeFileSync(parentTempFile, parentContent);
-				} else {
-					fs.writeFileSync(parentTempFile, '');
-				}
+				fs.writeFileSync(parentTempFile, parentContent);
 				fs.writeFileSync(headTempFile, headContent);
 
 				// Convert to URIs
 				const parentURI = vscode.Uri.file(parentTempFile);
 				const headURI = vscode.Uri.file(headTempFile);
 
-				// Open diff with the actual binary files
+				// Open diff with the actual files
 				vscode.commands.executeCommand(
 					'vscode.diff',
 					parentURI,
@@ -338,7 +394,7 @@ export class FileChangeNode extends TreeNode implements vscode.TreeItem {
 					opts,
 				);
 
-				// Clean up temp files after a delay (user should have them open by then)
+				// Clean up temp files after a delay
 				setTimeout(() => {
 					try {
 						if (fs.existsSync(parentTempFile)) fs.unlinkSync(parentTempFile);
@@ -347,26 +403,16 @@ export class FileChangeNode extends TreeNode implements vscode.TreeItem {
 						// Ignore cleanup errors
 					}
 				}, 30000); // 30 seconds
-			} else if (filePath.scheme === 'review') {
-				// Review mode: use URIs directly (review scheme supports binary content)
-				vscode.commands.executeCommand(
-					'vscode.diff',
-					parentFilePath,
-					filePath,
-					`${path.basename(filePath.fsPath)} (Review)`,
-					opts,
-				);
-			} else if (filePath.scheme === 'file') {
-				// Checkout/Review mode with local files: open diff with file URIs directly
-				vscode.commands.executeCommand(
-					'vscode.diff',
-					parentFilePath,
-					filePath,
-					`${path.basename(filePath.fsPath)} (Checkout)`,
-					opts,
-				);
 			} else {
-				Logger.appendLine(`Unknown URI scheme: ${filePath.scheme}`);
+				// Regular file (not LFS): use review URIs to enable commenting support
+				Logger.appendLine(`FileChangeNode> Opening regular file with review URIs: ${fileName}`);
+				vscode.commands.executeCommand(
+					'vscode.diff',
+					this.parentFilePath,
+					this.filePath,
+					`${fileName} (Pull Request)`,
+					opts,
+				);
 			}
 		} catch (error) {
 			Logger.appendLine(`Error opening diff: ${error}`);

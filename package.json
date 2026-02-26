@@ -162,6 +162,19 @@
 					"type": "boolean",
 					"default": true,
 					"description": "When true, the option to delete the remote will be selected by default when deleting a branch from a pull request."
+				},
+				"azdoPullRequests.commentInputStyle": {
+					"type": "string",
+					"enum": [
+						"inputBox",
+						"editor"
+					],
+					"enumDescriptions": [
+						"Use a quick input box for comment entry",
+						"Use a full editor pane for comment entry with multi-line support"
+					],
+					"default": "inputBox",
+					"description": "Style to use when entering review comments."
 				}
 			}
 		},
@@ -390,6 +403,18 @@
 				"title": "Delete Comment",
 				"category": "AzDO Pull Requests",
 				"icon": "$(close)"
+			},
+			{
+				"command": "azdopr.addCommentOnPRFile",
+				"title": "Add Review Comment",
+				"category": "AzDO Pull Requests",
+				"icon": "$(comment)"
+			},
+			{
+				"command": "azdopr.addFileComment",
+				"title": "Add File Comment",
+				"category": "AzDO Pull Requests",
+				"icon": "$(comment-discussion)"
 			},
 			{
 				"command": "azdopr.signinAndRefreshList",
@@ -659,9 +684,24 @@
 					"command": "azdopr.unmarkFileAsViewed",
 					"when": "view =~ /(azdopr|azdoprStatus):azdo/ && viewItem =~ /filechange(.*):viewed/",
 					"group": "inline"
+				},
+				{
+					"command": "azdopr.addCommentOnPRFile",
+					"when": "view == azdopr:azdo && viewItem =~ /filechange/",
+					"group": "inline@2"
+				},
+				{
+					"command": "azdopr.addFileComment",
+					"when": "view =~ /(azdopr|azdoprStatus):azdo/ && viewItem =~ /filechange/",
+					"group": "inline@3"
 				}
 			],
 			"editor/title": [
+				{
+					"command": "azdopr.addCommentOnPRFile",
+					"when": "resourceScheme == pr_azdo",
+					"group": "navigation@1"
+				},
 				{
 					"command": "azdoreview.openFile",
 					"group": "navigation",

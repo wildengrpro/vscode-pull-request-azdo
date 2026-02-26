@@ -25,6 +25,7 @@ import { CommonCommentHandler } from '../common/commonCommentHandler';
 import { getZeroBased, mapNewPositionToOld, mapOldPositionToNew } from '../common/diffPositionMapping';
 import { fromReviewUri, ReviewUriParams, toReviewUri } from '../common/uri';
 import { groupBy, uniqBy } from '../common/utils';
+import Logger from '../common/logger';
 import { URI_SCHEME_REVIEW } from '../constants';
 import { GitFileChangeNode, gitFileChangeNodeFilter, RemoteFileChangeNode } from './treeNodes/fileChangeNode';
 import { ThreadData } from './treeNodes/pullRequestNode';
@@ -76,10 +77,14 @@ export class ReviewCommentController
 
 	// #region initialize
 	async initialize(): Promise<void> {
+		Logger.appendLine(
+			`ReviewCommentController> initialize: received ${this._localFileChanges.length} file changes`,
+		);
 		this._visibleNormalTextEditors = vscode.window.visibleTextEditors.filter(ed => ed.document.uri.scheme !== 'comment');
 
 		await this.initializeCommentThreads();
 		await this.registerListeners();
+		Logger.appendLine(`ReviewCommentController> initialize complete, commentingRangeProvider registered`);
 	}
 
 	/**
@@ -383,6 +388,13 @@ export class ReviewCommentController
 		document: vscode.TextDocument,
 		token: vscode.CancellationToken,
 	): Promise<vscode.Range[] | undefined> {
+		// Early return for schemes we don't support to avoid spam in logs
+		if (document.uri.scheme === 'output' || document.uri.scheme === 'extension-output' ||
+		    document.uri.scheme === 'webview' || document.uri.scheme === 'vscode') {
+			return;
+		}
+
+		Logger.appendLine(`ReviewCommentController> provideCommentingRanges for ${document.uri.toString()}`);
 		let query: ReviewUriParams | undefined;
 
 		try {
@@ -390,20 +402,28 @@ export class ReviewCommentController
 		} catch (e) {}
 
 		if (query) {
+			Logger.appendLine(`ReviewCommentController> Document is review URI, path=${query.path}`);
 			const matchedFile = this.findMatchedFileChangeForReviewDiffView(this._localFileChanges, document.uri);
 
 			if (matchedFile) {
-				return getCommentingRanges(matchedFile.diffHunks, query.base);
+				const ranges = getCommentingRanges(matchedFile.diffHunks, query.base);
+				Logger.appendLine(`ReviewCommentController> Found ranges: ${ranges.length} ranges for review diff`);
+				return ranges;
+			} else {
+				Logger.appendLine(`ReviewCommentController> No matched file found for review URI`);
 			}
 		}
 
 		const currentWorkspace = vscode.workspace.getWorkspaceFolder(document.uri);
 		if (!currentWorkspace) {
+			Logger.appendLine(`ReviewCommentController> No workspace folder found`);
 			return;
 		}
 
 		if (document.uri.scheme === currentWorkspace.uri.scheme) {
+			Logger.appendLine(`ReviewCommentController> Document is in workspace scheme`);
 			if (!this._reposManager.activePullRequest!.isResolved()) {
+				Logger.appendLine(`ReviewCommentController> PR not resolved`);
 				return;
 			}
 
@@ -414,6 +434,7 @@ export class ReviewCommentController
 			const ranges = [];
 
 			if (matchedFile) {
+				Logger.appendLine(`ReviewCommentController> Found matched file for workspace URI: ${fileName}`);
 				// TODO Why was this here?
 				// if (matchedFile.status === GitChangeType.RENAME) {
 				// 	return [];
@@ -430,11 +451,15 @@ export class ReviewCommentController
 						ranges.push(new vscode.Range(start - 1, 0, end - 1, 0));
 					}
 				}
+				Logger.appendLine(`ReviewCommentController> Provided ${ranges.length} ranges for workspace diff`);
+			} else {
+				Logger.appendLine(`ReviewCommentController> No matched file found for workspace URI: ${fileName}`);
 			}
 
-			return ranges;
+			return ranges.length > 0 ? ranges : undefined;
 		}
 
+		Logger.appendLine(`ReviewCommentController> Document scheme does not match workspace scheme`);
 		return;
 	}
 

@@ -11,7 +11,7 @@ import { URI_SCHEME_REVIEW } from '../constants';
 import { GitContentProvider } from './gitContentProvider';
 import { PullRequestChangesTreeDataProvider } from './prChangesTreeDataProvider';
 import { PullRequestsTreeDataProvider } from './prsTreeDataProvider';
-import { ReviewManager } from './reviewManager';
+import { CheckoutManager } from './checkoutManager';
 
 export class ReviewsManager {
 	public static ID = 'Reviews';
@@ -20,7 +20,7 @@ export class ReviewsManager {
 	constructor(
 		private _context: vscode.ExtensionContext,
 		private _reposManager: RepositoriesManager,
-		private _reviewManagers: ReviewManager[],
+		private _checkoutManagers: CheckoutManager[],
 		private _prsTreeDataProvider: PullRequestsTreeDataProvider,
 		private _prFileChangesProvider: PullRequestChangesTreeDataProvider,
 		private _telemetry: ITelemetry,
@@ -42,8 +42,8 @@ export class ReviewsManager {
 						this._prFileChangesProvider.dispose();
 						this._prFileChangesProvider = new PullRequestChangesTreeDataProvider(this._context);
 
-						for (const reviewManager of this._reviewManagers) {
-							reviewManager.updateState();
+						for (const checkoutManager of this._checkoutManagers) {
+							checkoutManager.updateState();
 						}
 					}
 
@@ -57,9 +57,11 @@ export class ReviewsManager {
 	}
 
 	async provideTextDocumentContent(uri: vscode.Uri): Promise<string | undefined> {
-		for (const reviewManager of this._reviewManagers) {
-			if (uri.fsPath.startsWith(reviewManager.repository.rootUri.fsPath)) {
-				return reviewManager.provideTextDocumentContent(uri);
+		for (const checkoutManager of this._checkoutManagers) {
+			if (uri.fsPath.startsWith(checkoutManager.repository.rootUri.fsPath)) {
+				// Content provision functionality moved to other managers
+				// For now, return empty string as this was ReviewManager-specific
+				return '';
 			}
 		}
 		return '';

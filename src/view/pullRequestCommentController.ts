@@ -71,6 +71,12 @@ export class PullRequestCommentController implements CommentHandler, CommentReac
 				this.refreshContextKey(e);
 			}),
 		);
+
+		this._disposables.push(
+			vscode.window.onDidChangeActiveTextEditor(e => {
+				this.refreshContextKey(e);
+			}),
+		);
 	}
 
 	private refreshContextKey(editor: vscode.TextEditor | undefined): void {

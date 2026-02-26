@@ -106,11 +106,36 @@ export class PRNode extends TreeNode {
 	) {
 		super();
 		this.commentingRangeProvider = new PullRequestCommentingRangeProvider(pullRequestModel, _folderReposManager, async () => await this.getFileChanges());
+
+		// Initialize comment controller early for non-active PRs so commenting is available in diff editors
+		if (!pullRequestModel.equals(_folderReposManager.activePullRequest)) {
+			this.initializeCommentController();
+		}
+	}
+
+	private async initializeCommentController(): Promise<void> {
+		if (this._commentController) {
+			return;
+		}
+
+		try {
+			await this.resolvePRCommentController();
+		} catch (e) {
+			// Initialization can fail if PR isn't resolved yet, but that's ok
+			Logger.debug(`Early comment controller initialization failed: ${e}`, PRNode.ID);
+		}
 	}
 
 	// #region Tree
 	async getChildren(): Promise<TreeNode[]> {
 		Logger.debug(`Fetch children of PRNode #${this.pullRequestModel.getPullRequestId()}`, PRNode.ID);
+
+		// Set this PR as active when expanded to initialize comment manager
+		if (!this.pullRequestModel.equals(this._folderReposManager.activePullRequest)) {
+			Logger.debug(`Setting active PR to #${this.pullRequestModel.getPullRequestId()} on PR expansion`, PRNode.ID);
+			this._folderReposManager.activePullRequest = this.pullRequestModel;
+		}
+
 		try {
 			if (this.childrenDisposables && this.childrenDisposables.length) {
 				this.childrenDisposables.forEach(dp => dp.dispose());

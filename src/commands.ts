@@ -31,7 +31,9 @@ import { SETTINGS_NAMESPACE, URI_SCHEME_PR, URI_SCHEME_REVIEW } from './constant
 import { getInMemPRContentProvider, provideDocumentContentForChangeModel } from './view/inMemPRContentProvider';
 import { PullRequestsTreeDataProvider } from './view/prsTreeDataProvider';
 import { PullRequestCommentingRangeProvider } from './view/pullRequestCommentingRangeProvider';
-import { ReviewManager } from './view/reviewManager';
+import { CheckoutManager } from './view/checkoutManager';
+import { ReviewCommentManager } from './view/reviewCommentManager';
+import { PRDataManager } from './view/prDataManager';
 import { CommitNode } from './view/treeNodes/commitNode';
 import { DescriptionNode } from './view/treeNodes/descriptionNode';
 import { GitFileChangeNode, InMemFileChangeNode } from './view/treeNodes/fileChangeNode';
@@ -74,10 +76,58 @@ async function chooseItem<T>(
 	return (await vscode.window.showQuickPick(items, { placeHolder }))?.itemValue;
 }
 
+/**
+ * Get comment text from user via input box or editor based on configuration
+ * @param prompt Prompt for input
+ * @param defaultValue Default value if using editor
+ * @returns Comment text or undefined if cancelled
+ */
+async function getCommentText(prompt: string, defaultValue: string = ''): Promise<string | undefined> {
+	const config = vscode.workspace.getConfiguration('azdoPullRequests');
+	const inputStyle = config.get<'inputBox' | 'editor'>('commentInputStyle', 'inputBox');
+
+	if (inputStyle === 'editor') {
+		// Use full editor for comment input
+		const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse('untitled:comment.md'));
+		const editor = await vscode.window.showTextDocument(doc, {
+			viewColumn: vscode.ViewColumn.Beside,
+			preview: true,
+		});
+
+		if (defaultValue) {
+			await editor.edit(editBuilder => {
+				editBuilder.insert(new vscode.Position(0, 0), defaultValue);
+			});
+		}
+
+		// Wait for user to finish editing (they must close/change tabs to submit)
+		// Store the text before closing
+		let commentText = editor.document.getText();
+		if (!commentText || !commentText.trim()) {
+			return undefined;
+		}
+
+		// Auto-close the untitled document after a brief delay to let user see the result
+		await new Promise(resolve => setTimeout(resolve, 100));
+		await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+
+		return commentText;
+	} else {
+		// Use input box (existing behavior)
+		return await vscode.window.showInputBox({
+			prompt,
+			placeHolder: 'Type your comment here...',
+			ignoreFocusOut: true,
+		});
+	}
+}
+
 export function registerCommands(
 	context: vscode.ExtensionContext,
 	reposManager: RepositoriesManager,
-	reviewManagers: ReviewManager[],
+	checkoutManagers: CheckoutManager[],
+	commentManagers: ReviewCommentManager[],
+	dataManagers: PRDataManager[],
 	workItem: AzdoWorkItem,
 	azdoUserManager: AzdoUserManager,
 	telemetry: ITelemetry,
@@ -218,6 +268,13 @@ export function registerCommands(
 				if (!folderManager) {
 					return;
 				}
+
+				// Set the active pull request to trigger comment initialization
+				if (folderManager.activePullRequest !== fileChangeNode.pullRequest) {
+					Logger.appendLine(`Commands> openDiffView: Setting active PR #${fileChangeNode.pullRequest.getPullRequestId()}`);
+					folderManager.activePullRequest = fileChangeNode.pullRequest;
+				}
+
 				await fileChangeNode.openDiff(folderManager);
 			},
 		),
@@ -301,9 +358,15 @@ export function registerCommands(
 					title: `Switching to Pull Request #${pullRequestModel.getPullRequestId()}`,
 				},
 				async (_progress, _token) => {
-					await ReviewManager.getReviewManagerForRepository(reviewManagers, pullRequestModel.azdoRepository)?.switch(
-						pullRequestModel,
-					);
+					const folderManager = reposManager.getManagerForPullRequestModel(pullRequestModel);
+					if (folderManager) {
+						const checkoutManager = checkoutManagers.find(
+							manager => manager.repository.rootUri.toString() === folderManager.repository.rootUri.toString(),
+						);
+						if (checkoutManager) {
+							await checkoutManager.switch(pullRequestModel);
+						}
+					}
 				},
 			);
 		}),
@@ -423,20 +486,8 @@ export function registerCommands(
 			if (!folderManager) {
 				return;
 			}
-			let descriptionNode: DescriptionNode;
-			if (!(argument instanceof DescriptionNode)) {
-				// the command is triggerred from command palette or status bar, which means we are already in checkout mode.
-				const rootNodes = await ReviewManager.getReviewManagerForFolderManager(
-					reviewManagers,
-					folderManager,
-				)!.changesInPrDataProvider.getChildren();
-				descriptionNode = rootNodes[0] as DescriptionNode;
-			} else {
-				descriptionNode = argument;
-			}
 			const pullRequest = ensurePR(folderManager, pullRequestModel);
-			descriptionNode.reveal(descriptionNode, { select: true, focus: true });
-			// Create and show a new webview
+			// Create and show the webview (description node reveal is not available with new architecture)
 			PullRequestOverviewPanel.createOrShow(context.extensionPath, folderManager, pullRequest, workItem, azdoUserManager);
 
 			/* __GDPR__
@@ -482,6 +533,13 @@ export function registerCommands(
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('azdopr.viewChanges', async (fileChange: GitFileChangeNode) => {
+			// Set the active pull request so comment managers initialize
+			const folderManager = reposManager.getManagerForPullRequestModel(fileChange.pullRequest);
+			if (folderManager && folderManager.activePullRequest !== fileChange.pullRequest) {
+				Logger.appendLine(`Commands> azdopr.viewChanges: Setting active PR #${fileChange.pullRequest.getPullRequestId()}`);
+				folderManager.activePullRequest = fileChange.pullRequest;
+			}
+
 			if (fileChange.status === GitChangeType.DELETE || fileChange.status === GitChangeType.ADD) {
 				// create an empty `review` uri without any path/commit info.
 				const emptyFileUri = fileChange.parentFilePath.with({
@@ -652,6 +710,111 @@ export function registerCommands(
 		}),
 	);
 
+	context.subscriptions.push(
+		vscode.commands.registerCommand('azdopr.addCommentOnPRFile', async (fileNode: GitFileChangeNode | InMemFileChangeNode) => {
+			/* __GDPR__
+			"azdopr.addCommentOnPRFile" : {}
+		*/
+			telemetry.sendTelemetryEvent('azdopr.addCommentOnPRFile');
+
+			try {
+				const folderManager = reposManager.getManagerForPullRequestModel(fileNode.pullRequest);
+				if (!folderManager) {
+					vscode.window.showErrorMessage('Unable to find repository manager');
+					return;
+				}
+
+				// Get active editor - handle both pr_azdo:// and file:// URIs
+				const editor = vscode.window.activeTextEditor;
+				if (!editor) {
+					vscode.window.showErrorMessage('Please open the file in the editor first');
+					return;
+				}
+
+				// Get selection or cursor position
+				const selection = editor.selection;
+				let line = selection.active.line + 1; // 1-indexed for API
+
+				// Get comment text using configured input style
+				const commentText = await getCommentText(`Add comment on line ${line}`);
+
+				if (!commentText) {
+					return;
+				}
+
+				// Determine if this is the base (left) or head (right) file
+				const params = fromPRUri(fileNode.filePath);
+				const isBase = params?.isBase ?? false;
+
+				// Create the thread via PR API
+				await fileNode.pullRequest.createThread(commentText, {
+					filePath: fileNode.fileName,
+					line: line,
+					startOffset: 1,
+					endOffset: 1,
+					isLeft: isBase,
+				});
+
+				// Refresh PR description if it's open
+				if (PullRequestOverviewPanel.currentPanel) {
+					PullRequestOverviewPanel.refresh();
+				}
+
+				vscode.window.showInformationMessage('Comment added successfully!');
+			} catch (error) {
+				Logger.appendLine(`Error adding comment: ${error}`);
+				vscode.window.showErrorMessage(`Failed to add comment: ${error}`);
+			}
+		}),
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('azdopr.addFileComment', async (fileNode: GitFileChangeNode | InMemFileChangeNode) => {
+			/* __GDPR__
+			"azdopr.addFileComment" : {}
+		*/
+			telemetry.sendTelemetryEvent('azdopr.addFileComment');
+
+			try {
+				const folderManager = reposManager.getManagerForPullRequestModel(fileNode.pullRequest);
+				if (!folderManager) {
+					vscode.window.showErrorMessage('Unable to find repository manager');
+					return;
+				}
+
+				// Get comment text using configured input style
+				const commentText = await getCommentText(`Add comment for ${pathLib.basename(fileNode.fileName)}`);
+
+				if (!commentText) {
+					return;
+				}
+
+				// Determine if this is the base (left) or head (right) file
+				const params = fromPRUri(fileNode.filePath);
+				const isBase = params?.isBase ?? false;
+
+				// Create file-level thread with file path context (line: 1 for file-level)
+				await fileNode.pullRequest.createThread(commentText, {
+					filePath: fileNode.fileName,
+					line: 1,
+					startOffset: 1,
+					endOffset: 1,
+					isLeft: isBase,
+				});
+
+				// Refresh PR description if it's open
+				if (PullRequestOverviewPanel.currentPanel) {
+					PullRequestOverviewPanel.refresh();
+				}
+
+				vscode.window.showInformationMessage(`File comment added to ${fileNode.fileName}`);
+			} catch (error) {
+				Logger.appendLine(`Error adding file comment: ${error}`);
+				vscode.window.showErrorMessage(`Failed to add file comment: ${error}`);
+			}
+		}),
+	);
+
 	// context.subscriptions.push(vscode.commands.registerCommand('azdopr.deleteComment', async (comment: GHPRComment | TemporaryComment) => {
 	// 	/* __GDPR__
 	// 		"azdopr.deleteComment" : {}
@@ -671,6 +834,15 @@ export function registerCommands(
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('azdoreview.openFile', (value: GitFileChangeNode | vscode.Uri) => {
+			// If it's a GitFileChangeNode, set the active PR to trigger comment initialization
+			if (value instanceof GitFileChangeNode) {
+				const folderManager = reposManager.getManagerForPullRequestModel(value.pullRequest);
+				if (folderManager && folderManager.activePullRequest !== value.pullRequest) {
+					Logger.appendLine(`Commands> azdoreview.openFile: Setting active PR #${value.pullRequest.getPullRequestId()}`);
+					folderManager.activePullRequest = value.pullRequest;
+				}
+			}
+
 			const uri = value instanceof GitFileChangeNode ? value.filePath : value;
 
 			const activeTextEditor = vscode.window.activeTextEditor;
@@ -701,11 +873,14 @@ export function registerCommands(
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('azdopr.refreshChanges', _ => {
-			reviewManagers.forEach(reviewManager => {
-				reviewManager.updateComments();
-				PullRequestOverviewPanel.refresh();
-				reviewManager.changesInPrDataProvider.refresh();
-			});
+			// Find active PRs in folder managers and update their comment managers
+			for (let i = 0; i < reposManager.folderManagers.length; i++) {
+				const folderManager = reposManager.folderManagers[i];
+				if (folderManager.activePullRequest && commentManagers[i]) {
+					commentManagers[i].updateComments(folderManager.activePullRequest);
+				}
+			}
+			PullRequestOverviewPanel.refresh();
 		}),
 	);
 
@@ -725,7 +900,11 @@ export function registerCommands(
 		vscode.commands.registerCommand('azdopr.refreshPullRequest', (prNode: PRNode) => {
 			const folderManager = reposManager.getManagerForPullRequestModel(prNode.pullRequestModel);
 			if (folderManager && prNode.pullRequestModel.equals(folderManager?.activePullRequest)) {
-				ReviewManager.getReviewManagerForFolderManager(reviewManagers, folderManager)?.updateComments();
+				// Find the comment manager for this folder and update comments
+				const folderIndex = reposManager.folderManagers.indexOf(folderManager);
+				if (folderIndex >= 0 && commentManagers[folderIndex]) {
+					commentManagers[folderIndex].updateComments(prNode.pullRequestModel);
+				}
 			}
 
 			PullRequestOverviewPanel.refresh();
