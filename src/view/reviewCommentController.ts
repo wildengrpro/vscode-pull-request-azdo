@@ -144,15 +144,10 @@ export class ReviewCommentController
 			this._repository.rootUri,
 		);
 
-		// Add a label suffix to the URI path for left-side comments to show in the Comments pane
-		const displayUri = isLeftSide
-			? reviewUri.with({ path: reviewUri.path + ' [Base]' })
-			: reviewUri;
-
 		const range = new vscode.Range(new vscode.Position(thread.line - 1, 0), new vscode.Position(thread.line - 1, 0));
 		const threadData = this.createThreadData(
 			thread.thread,
-			displayUri,
+			reviewUri,
 			range,
 			vscode.CommentThreadCollapsibleState.Collapsed,
 		);
