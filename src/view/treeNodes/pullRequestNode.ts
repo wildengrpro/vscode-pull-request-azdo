@@ -147,11 +147,6 @@ export class PRNode extends TreeNode {
 				this.pullRequestModel,
 			);
 
-			// Auto-open the description in an editor
-			setImmediate(() => {
-				vscode.commands.executeCommand('azdopr.openDescription', this.pullRequestModel);
-			});
-
 			if (!this.pullRequestModel.isResolved()) {
 				return [descriptionNode];
 			}

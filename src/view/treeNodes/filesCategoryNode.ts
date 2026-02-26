@@ -12,7 +12,9 @@ import { TreeNode, TreeNodeParent } from './treeNode';
 export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 	public label: string = 'Files';
 	public collapsibleState: vscode.TreeItemCollapsibleState;
+	public contextValue: string = 'filescategory';
 	private directories: TreeNode[] = [];
+	private showOnlyFilesWithComments: boolean = false;
 
 	constructor(public parent: TreeNodeParent, private _fileChanges: (GitFileChangeNode | RemoteFileChangeNode)[]) {
 		super();
@@ -31,18 +33,56 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 	}
 
 	getTreeItem(): vscode.TreeItem {
-		// Show file count in the label
-		this.label = `Changes (${this._fileChanges.length})`;
-		return this;
+		// Get filtered count
+		const filteredFiles = this.getFilteredFiles();
+		const totalCount = this._fileChanges.length;
+		const countText = this.showOnlyFilesWithComments
+			? `${filteredFiles.length}/${totalCount} (with comments)`
+			: `${totalCount}`;
+		this.label = `Changes (${countText})`;
+		const item: vscode.TreeItem = {
+			label: this.label,
+			collapsibleState: this.collapsibleState,
+			contextValue: this.contextValue,
+			tooltip: this.showOnlyFilesWithComments
+				? `Showing ${filteredFiles.length} of ${totalCount} files with comments`
+				: `All ${totalCount} files`,
+		};
+		return item;
+	}
+
+	private getFilteredFiles(): (GitFileChangeNode | RemoteFileChangeNode)[] {
+		if (!this.showOnlyFilesWithComments) {
+			return this._fileChanges;
+		}
+		// Only include files that have comments property and have at least one comment
+		return this._fileChanges.filter(file => {
+			// Check if file is a FileChangeNode (which has comments property)
+			const fileChange = file as any;
+			return fileChange.comments && Array.isArray(fileChange.comments) && fileChange.comments.length > 0;
+		});
+	}
+
+	toggleCommentsFilter(): void {
+		this.showOnlyFilesWithComments = !this.showOnlyFilesWithComments;
+		this.refresh(this);
 	}
 
 	async getChildren(): Promise<TreeNode[]> {
 		let nodes: TreeNode[];
 		const layout = vscode.workspace.getConfiguration(SETTINGS_NAMESPACE).get<string>('fileListLayout');
+
+		// Apply comments filter if enabled
+		const filesToShow = this.getFilteredFiles();
+
 		if (layout === 'tree') {
-			nodes = this.directories;
+			// Rebuild directory tree with filtered files
+			const dirNode = new DirectoryTreeNode(this, '');
+			filesToShow.forEach(f => dirNode.addFile(f));
+			dirNode.finalize();
+			nodes = dirNode.label === '' ? dirNode.children : [dirNode];
 		} else {
-			nodes = this._fileChanges;
+			nodes = filesToShow;
 		}
 		return Promise.resolve(nodes);
 	}

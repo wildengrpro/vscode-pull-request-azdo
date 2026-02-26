@@ -443,6 +443,12 @@
 				"title": "Mark File As Not Viewed",
 				"category": "AzDO Pull Requests",
 				"icon": "$(eye-closed)"
+			},
+			{
+				"command": "azdopr.toggleFilesWithCommentsFilter",
+				"title": "Show Only Files With Comments",
+				"category": "AzDO Pull Requests",
+				"icon": "$(filter)"
 			}
 		],
 		"viewsWelcome": [
@@ -604,6 +610,11 @@
 					"group": "navigation@2"
 				},
 				{
+					"command": "azdopr.toggleFileListLayout",
+					"when": "view == azdoprStatus:azdo",
+					"group": "navigation@1"
+				},
+				{
 					"command": "azdopr.setFileListLayoutAsTree",
 					"when": "view == azdoprStatus:azdo && fileListLayout:flat",
 					"group": "navigation"
@@ -700,6 +711,11 @@
 					"command": "azdopr.addFileComment",
 					"when": "view =~ /(azdopr|azdoprStatus):azdo/ && viewItem =~ /filechange/",
 					"group": "inline@3"
+				},
+				{
+					"command": "azdopr.toggleFilesWithCommentsFilter",
+					"when": "view == azdopr:azdo && viewItem =~ /filescategory/",
+					"group": "inline"
 				}
 			],
 			"editor/title": [

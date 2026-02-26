@@ -381,6 +381,12 @@ export class PullRequestModel implements IPullRequestModel {
 			return result;
 		}
 
+		Logger.appendLine(`PullRequestModel> getAllActiveThreadsBetweenAllIterations: Azure DevOps returned ${result.length} threads`);
+		result.forEach((t, idx) => {
+			const commentContent = t.comments?.[0]?.content?.substring(0, 50) || '(no content)';
+			Logger.appendLine(`  Thread ${idx}: id=${t.id}, path=${t.threadContext?.filePath}, leftStart=${t.threadContext?.leftFileStart?.line}, rightStart=${t.threadContext?.rightFileStart?.line}, pullRequestContext=${t.pullRequestThreadContext ? 'yes' : 'no'}, comment="${commentContent}"`);
+		});
+
 		const reviewThreads = result?.map(r => this.convertThreadToIReviewThread(r));
 		this.diffThreads(reviewThreads);
 		this._reviewThreadsCache = reviewThreads;

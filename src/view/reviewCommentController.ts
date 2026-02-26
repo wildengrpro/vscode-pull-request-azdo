@@ -95,52 +95,6 @@ export class ReviewCommentController
 	 * @param thread The comment thread information from GitHub.
 	 * @returns A GHPRCommentThread that has been created on an editor.
 	 */
-	private async createWorkspaceCommentThread(
-		uri: vscode.Uri,
-		path: string,
-		thread: IReviewThread,
-	): Promise<GHPRCommentThread> {
-		let line = thread.line;
-		const localDiff = await this._repository.diffWithHEAD(path);
-		if (localDiff) {
-			line = mapOldPositionToNew(localDiff, thread.line);
-		}
-
-		const range = new vscode.Range(new vscode.Position(line - 1, 0), new vscode.Position(line - 1, 0));
-
-		// Check if the file exists locally; if not, fall back to review URI
-		let commentUri = uri;
-		try {
-			await vscode.workspace.fs.stat(uri);
-			// File exists, use workspace URI
-			commentUri = uri;
-		} catch (e) {
-			// File doesn't exist locally (e.g., PR not checked out), use review URI instead
-			commentUri = toReviewUri(
-				uri,
-				path,
-				undefined,
-				this._reposManager.activePullRequest.mergeBase,
-				false,
-				{ base: false },
-				this._repository.rootUri,
-			);
-		}
-
-		const threadData = this.createThreadData(thread.thread, commentUri, range, vscode.CommentThreadCollapsibleState.Collapsed);
-		const ghprThread = createVSCodeCommentThread(threadData, this._commentController);
-
-		// Open the file in an editor asynchronously (non-blocking) in side panel
-		setImmediate(() => {
-			vscode.commands.executeCommand('vscode.open', commentUri, {
-				viewColumn: vscode.ViewColumn.Beside,
-				preserveFocus: true,
-			});
-		});
-
-		return ghprThread;
-	}
-
 	/**
 	 * Creates a comment thread for a thread that appears on the left-hand side, which is a
 	 * document that has a 'review' scheme whose content is created by the extension.
@@ -149,21 +103,56 @@ export class ReviewCommentController
 	 * @param thread The comment thread information from GitHub.
 	 * @returns A GHPRCommentThread that has been created on an editor.
 	 */
+	/**
+	 * Creates a comment thread with review:// URI for both LEFT and RIGHT side comments.
+	 *
+	 * CURRENT BEHAVIOR:
+	 * - Comments pane shows up initially with all comments (LEFT and RIGHT sides)
+	 * - Clicking a comment opens the file with the comment at the specified line
+	 * - RIGHT-side comments show the current/modified file content
+	 * - LEFT-side comments show the original/base file content
+	 *
+	 * LIMITATIONS:
+	 * - When opening a file from the tree view, both review:// comment threads and
+	 *   workspace file:// comment threads may appear (potential duplication)
+	 * - LEFT-side comments show the original file version, not the diff view context
+	 *   which would be more informative about what changed
+	 * - Line numbers in the Comments pane reflect the line in the respective file version,
+	 *   which may differ between old (LEFT) and new (RIGHT) versions
+	 *
+	 * @param uri The uri to the file the comment thread is on.
+	 * @param path The path to the file the comment thread is on.
+	 * @param thread The comment thread information from Azure DevOps.
+	 * @returns A GHPRCommentThread that has been created on an editor.
+	 */
 	private createReviewCommentThread(uri: vscode.Uri, path: string, thread: IReviewThread): GHPRCommentThread {
+		// Create review:// URIs for both LEFT and RIGHT side comments
+		// RIGHT-side (base: false) - shows the current/modified file content
+		// LEFT-side (base: true) - shows the original/base file content
+		const isLeftSide = thread.diffSide !== DiffSide.RIGHT;
+		const commitSha = isLeftSide
+			? this._reposManager.activePullRequest.getDiffTarget()
+			: this._reposManager.activePullRequest.head.sha;
+
 		const reviewUri = toReviewUri(
 			uri,
 			path,
 			undefined,
-			this._reposManager.activePullRequest.mergeBase,
+			commitSha,
 			false,
-			{ base: true },
+			{ base: isLeftSide },
 			this._repository.rootUri,
 		);
+
+		// Add a label suffix to the URI path for left-side comments to show in the Comments pane
+		const displayUri = isLeftSide
+			? reviewUri.with({ path: reviewUri.path + ' [Base]' })
+			: reviewUri;
 
 		const range = new vscode.Range(new vscode.Position(thread.line - 1, 0), new vscode.Position(thread.line - 1, 0));
 		const threadData = this.createThreadData(
 			thread.thread,
-			reviewUri,
+			displayUri,
 			range,
 			vscode.CommentThreadCollapsibleState.Collapsed,
 		);
@@ -172,50 +161,9 @@ export class ReviewCommentController
 	}
 
 	async initializeCommentThreads(): Promise<void> {
-		if (!this._reposManager.activePullRequest || !this._reposManager.activePullRequest.isResolved()) {
-			return;
-		}
-
-		const reviewThreads = this._reposManager.activePullRequest!.reviewThreadsCache;
-		const threadsByPath = groupBy(reviewThreads, thread => thread.path);
-
-		for (const path in threadsByPath) {
-			const threads = threadsByPath[path];
-			const firstThread = threads[0];
-			if (firstThread && !!firstThread.path) {
-				const fullPath = nodePath
-					.join(this._repository.rootUri.path, removeLeadingSlash(firstThread.path))
-					.replace(/\\/g, '/');
-				const uri = this._repository.rootUri.with({ path: fullPath });
-
-				let rightSideCommentThreads: GHPRCommentThread[] = [];
-				let leftSideThreads: GHPRCommentThread[] = [];
-				let outdatedCommentThreads: GHPRCommentThread[] = [];
-
-				const threadPromises = threads.map(async thread => {
-					if (thread.isOutdated) {
-						// outdatedCommentThreads.push(this.createOutdatedCommentThread(path, thread));
-					} else {
-						if (thread.diffSide === DiffSide.RIGHT) {
-							const workspaceThread = await this.createWorkspaceCommentThread(
-								uri,
-								removeLeadingSlash(path),
-								thread,
-							);
-							rightSideCommentThreads.push(workspaceThread);
-						} else {
-							leftSideThreads.push(this.createReviewCommentThread(uri, path, thread));
-						}
-					}
-				});
-
-				await Promise.all(threadPromises);
-
-				this._workspaceFileChangeCommentThreads[removeLeadingSlash(path)] = rightSideCommentThreads;
-				this._reviewSchemeFileChangeCommentThreads[removeLeadingSlash(path)] = leftSideThreads;
-				this._obsoleteFileChangeCommentThreads[removeLeadingSlash(path)] = outdatedCommentThreads;
-			}
-		}
+		// Comments are now created on-demand when files are opened via registerListeners()
+		// This defers comment initialization until actually needed, improving startup performance
+		// and avoiding the confusing mix of LEFT/RIGHT side comments in the pane
 	}
 
 	private createThreadData(
@@ -245,17 +193,24 @@ export class ReviewCommentController
 				}
 
 				this._visibleNormalTextEditors = visibleTextEditors.filter(ed => ed.document.uri.scheme !== 'comment');
-				// remove comment threads in `pr/review` documents if there are no longer visible
 
 				const workspaceDocuments = visibleTextEditors.filter(
 					editor => editor.document.uri.scheme === this._repository.rootUri.scheme,
 				);
-				workspaceDocuments.forEach(editor => {
+
+				workspaceDocuments.forEach(async editor => {
 					const fileName = this.gitRelativeRootPath(editor.document.uri.path);
-					const threadsForEditor = this._workspaceFileChangeCommentThreads[removeLeadingSlash(fileName)] || [];
+					const fileKey = removeLeadingSlash(fileName);
+
+					// Create comments on-demand if they don't exist yet for this file
+					if (!this._workspaceFileChangeCommentThreads[fileKey] && !this._reviewSchemeFileChangeCommentThreads[fileKey]) {
+						await this.createCommentsForFile(fileName, editor.document.uri);
+					}
+
+					const threadsForEditor = this._workspaceFileChangeCommentThreads[fileKey] || [];
 					// If the editor has no view column, assume it is part of a diff editor and expand the comments. Otherwise, collapse them.
 					const isEmbedded = !editor.viewColumn;
-					this._workspaceFileChangeCommentThreads[removeLeadingSlash(fileName)] = threadsForEditor.map(thread => {
+					this._workspaceFileChangeCommentThreads[fileKey] = threadsForEditor.map(thread => {
 						thread.collapsibleState = isEmbedded
 							? vscode.CommentThreadCollapsibleState.Expanded
 							: vscode.CommentThreadCollapsibleState.Collapsed;
@@ -313,11 +268,8 @@ export class ReviewCommentController
 						if (thread.isOutdated) {
 							// newThread = this.createOutdatedCommentThread(path, thread);
 						} else {
-							if (thread.diffSide === DiffSide.RIGHT) {
-								newThread = await this.createWorkspaceCommentThread(uri, removeLeadingSlash(path), thread);
-							} else {
-								newThread = this.createReviewCommentThread(uri, path, thread);
-							}
+							// All comments (LEFT and RIGHT) use review:// URIs
+							newThread = this.createReviewCommentThread(uri, path, thread);
 						}
 					}
 
@@ -366,6 +318,44 @@ export class ReviewCommentController
 				});
 			}),
 		);
+	}
+
+	private async createCommentsForFile(fileName: string, uri: vscode.Uri): Promise<void> {
+		if (!this._reposManager.activePullRequest || !this._reposManager.activePullRequest.isResolved()) {
+			return;
+		}
+
+		const reviewThreads = this._reposManager.activePullRequest!.reviewThreadsCache;
+		const threadsForFile = reviewThreads.filter(thread => thread.path === fileName);
+
+		if (threadsForFile.length === 0) {
+			return;
+		}
+
+		const fileKey = removeLeadingSlash(fileName);
+		let rightSideCommentThreads: GHPRCommentThread[] = [];
+		let leftSideThreads: GHPRCommentThread[] = [];
+
+		for (const thread of threadsForFile) {
+			if (thread.isOutdated) {
+				// Skip outdated comments for now
+				continue;
+			}
+
+			const commentThread = this.createReviewCommentThread(uri, fileName, thread);
+			if (thread.diffSide === DiffSide.RIGHT) {
+				rightSideCommentThreads.push(commentThread);
+			} else {
+				leftSideThreads.push(commentThread);
+			}
+		}
+
+		if (rightSideCommentThreads.length > 0) {
+			this._workspaceFileChangeCommentThreads[fileKey] = rightSideCommentThreads;
+		}
+		if (leftSideThreads.length > 0) {
+			this._reviewSchemeFileChangeCommentThreads[fileKey] = leftSideThreads;
+		}
 	}
 
 	private visibleEditorsEqual(a: vscode.TextEditor[], b: readonly vscode.TextEditor[]): boolean {

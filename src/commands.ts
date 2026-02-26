@@ -961,4 +961,13 @@ export function registerCommands(
 			});
 		})
 	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('azdopr.toggleFilesWithCommentsFilter', (node: any) => {
+			// The command receives the FilesCategoryNode that was clicked
+			if (node && typeof node.toggleCommentsFilter === 'function') {
+				node.toggleCommentsFilter();
+			}
+		})
+	);
 }
