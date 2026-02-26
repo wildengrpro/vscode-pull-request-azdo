@@ -31,6 +31,8 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 	}
 
 	getTreeItem(): vscode.TreeItem {
+		// Show file count in the label
+		this.label = `Changes (${this._fileChanges.length})`;
 		return this;
 	}
 

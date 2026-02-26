@@ -335,6 +335,12 @@
 				"category": "AzDO Pull Requests"
 			},
 			{
+				"command": "azdopr.toggleFileListLayout",
+				"title": "Toggle File List Layout (Tree/Flat)",
+				"icon": "$(list-tree)",
+				"category": "AzDO Pull Requests"
+			},
+			{
 				"command": "azdopr.refreshChanges",
 				"title": "Refresh",
 				"icon": "$(refresh)",

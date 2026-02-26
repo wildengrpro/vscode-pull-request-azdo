@@ -134,7 +134,7 @@ export class PullRequestOverviewPanel extends WebviewBase {
 		this._folderRepositoryManager.onDidChangeActiveIssue(
 			_ => {
 				if (this._folderRepositoryManager && this._item) {
-					const isCurrentlyCheckedOut = this._item.equals(this._folderRepositoryManager.activePullRequest);
+					const isCurrentlyCheckedOut = this._folderRepositoryManager.isPullRequestCheckedOut(this._item);
 					this._postMessage({
 						command: 'pr.update-checkout-status',
 						isCurrentlyCheckedOut: isCurrentlyCheckedOut,
@@ -166,7 +166,7 @@ export class PullRequestOverviewPanel extends WebviewBase {
 	registerFolderRepositoryListener() {
 		this._changeActivePullRequestListener = this._folderRepositoryManager.onDidChangeActivePullRequest(_ => {
 			if (this._folderRepositoryManager && this._item) {
-				const isCurrentlyCheckedOut = this._item.equals(this._folderRepositoryManager.activePullRequest);
+				const isCurrentlyCheckedOut = this._folderRepositoryManager.isPullRequestCheckedOut(this._item);
 				this._postMessage({
 					command: 'pr.update-checkout-status',
 					isCurrentlyCheckedOut,
@@ -206,7 +206,7 @@ export class PullRequestOverviewPanel extends WebviewBase {
 			this._repositoryDefaultBranch = defaultBranch!;
 			this._panel.title = `Pull Request #${pullRequestModel.getPullRequestId().toString()}`;
 
-			const isCurrentlyCheckedOut = pullRequestModel.equals(this._folderRepositoryManager.activePullRequest);
+			const isCurrentlyCheckedOut = this._folderRepositoryManager.isPullRequestCheckedOut(pullRequestModel);
 			const hasWritePermission = repositoryAccess!.hasWritePermission;
 			const mergeMethodsAvailability = repositoryAccess!.mergeMethodsAvailability;
 			const canEdit = hasWritePermission || canEditPr;
@@ -680,7 +680,7 @@ export class PullRequestOverviewPanel extends WebviewBase {
 		});
 
 		if (selectedActions) {
-			const isBranchActive = this._item.equals(this._folderRepositoryManager.activePullRequest);
+			const isBranchActive = this._folderRepositoryManager.isPullRequestCheckedOut(this._item);
 
 			const promises = selectedActions.map(async action => {
 				switch (action.type) {
@@ -724,11 +724,11 @@ export class PullRequestOverviewPanel extends WebviewBase {
 	private checkoutPullRequest(message: IRequestMessage<any>): void {
 		vscode.commands.executeCommand('azdopr.pick', this._item).then(
 			() => {
-				const isCurrentlyCheckedOut = this._item.equals(this._folderRepositoryManager.activePullRequest);
+				const isCurrentlyCheckedOut = this._folderRepositoryManager.isPullRequestCheckedOut(this._item);
 				this._replyMessage(message, { isCurrentlyCheckedOut: isCurrentlyCheckedOut });
 			},
 			() => {
-				const isCurrentlyCheckedOut = this._item.equals(this._folderRepositoryManager.activePullRequest);
+				const isCurrentlyCheckedOut = this._folderRepositoryManager.isPullRequestCheckedOut(this._item);
 				this._replyMessage(message, { isCurrentlyCheckedOut: isCurrentlyCheckedOut });
 			},
 		);

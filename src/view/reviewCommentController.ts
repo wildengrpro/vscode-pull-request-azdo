@@ -108,9 +108,37 @@ export class ReviewCommentController
 
 		const range = new vscode.Range(new vscode.Position(line - 1, 0), new vscode.Position(line - 1, 0));
 
-		const threadData = this.createThreadData(thread.thread, uri, range, vscode.CommentThreadCollapsibleState.Collapsed);
+		// Check if the file exists locally; if not, fall back to review URI
+		let commentUri = uri;
+		try {
+			await vscode.workspace.fs.stat(uri);
+			// File exists, use workspace URI
+			commentUri = uri;
+		} catch (e) {
+			// File doesn't exist locally (e.g., PR not checked out), use review URI instead
+			commentUri = toReviewUri(
+				uri,
+				path,
+				undefined,
+				this._reposManager.activePullRequest.mergeBase,
+				false,
+				{ base: false },
+				this._repository.rootUri,
+			);
+		}
 
-		return createVSCodeCommentThread(threadData, this._commentController);
+		const threadData = this.createThreadData(thread.thread, commentUri, range, vscode.CommentThreadCollapsibleState.Collapsed);
+		const ghprThread = createVSCodeCommentThread(threadData, this._commentController);
+
+		// Open the file in an editor asynchronously (non-blocking) in side panel
+		setImmediate(() => {
+			vscode.commands.executeCommand('vscode.open', commentUri, {
+				viewColumn: vscode.ViewColumn.Beside,
+				preserveFocus: true,
+			});
+		});
+
+		return ghprThread;
 	}
 
 	/**

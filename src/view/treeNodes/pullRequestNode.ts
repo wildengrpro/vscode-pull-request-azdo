@@ -15,12 +15,11 @@ import { getZeroBased } from '../../common/diffPositionMapping';
 import { GitChangeType, SlimFileChange } from '../../common/file';
 import Logger from '../../common/logger';
 import { fromPRUri, toPRUriAzdo } from '../../common/uri';
-import { SETTINGS_NAMESPACE } from '../../constants';
 import { getInMemPRContentProvider, provideDocumentContentForChangeModel } from '../inMemPRContentProvider';
 import { PullRequestCommentingRangeProvider } from '../pullRequestCommentingRangeProvider';
 import { DescriptionNode } from './descriptionNode';
-import { DirectoryTreeNode } from './directoryTreeNode';
 import { GitFileChangeNode, InMemFileChangeNode, RemoteFileChangeNode } from './fileChangeNode';
+import { FilesCategoryNode } from './filesCategoryNode';
 import { TreeNode, TreeNodeParent } from './treeNode';
 
 /**
@@ -148,6 +147,11 @@ export class PRNode extends TreeNode {
 				this.pullRequestModel,
 			);
 
+			// Auto-open the description in an editor
+			setImmediate(() => {
+				vscode.commands.executeCommand('azdopr.openDescription', this.pullRequestModel);
+			});
+
 			if (!this.pullRequestModel.isResolved()) {
 				return [descriptionNode];
 			}
@@ -179,22 +183,10 @@ export class PRNode extends TreeNode {
 			}
 
 			const result: TreeNode[] = [descriptionNode];
-			const layout = vscode.workspace.getConfiguration(SETTINGS_NAMESPACE).get<string>('fileListLayout');
-			if (layout === 'tree') {
-				// tree view
-				const dirNode = new DirectoryTreeNode(this, '');
-				this._fileChanges.forEach(f => dirNode.addFile(f));
-				dirNode.finalize();
-				if (dirNode.label === '') {
-					// nothing on the root changed, pull children to parent
-					result.push(...dirNode.children);
-				} else {
-					result.push(dirNode);
-				}
-			} else {
-				// flat view
-				result.push(...this._fileChanges);
-			}
+
+			// Create Changes category node with file count
+			const changesNode = new FilesCategoryNode(this, this._fileChanges);
+			result.push(changesNode);
 
 			this.childrenDisposables = result;
 			return result;
@@ -337,7 +329,7 @@ export class PRNode extends TreeNode {
 	}
 
 	getTreeItem(): vscode.TreeItem {
-		const currentBranchIsForThisPR = this.pullRequestModel.equals(this._folderReposManager.activePullRequest);
+		const currentBranchIsForThisPR = this._folderReposManager.isPullRequestCheckedOut(this.pullRequestModel);
 
 		const { isDraft } = this.pullRequestModel;
 		const title = this.pullRequestModel.item.title;

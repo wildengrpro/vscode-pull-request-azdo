@@ -101,7 +101,7 @@ export class PullRequestViewProvider extends WebviewBase implements vscode.Webvi
 				this._item = pullRequest;
 				this._view.title = `${pullRequest.item.title} #${pullRequestModel.getPullRequestId().toString()}`;
 
-				const isCurrentlyCheckedOut = pullRequestModel.equals(this._folderRepositoryManager.activePullRequest);
+			const isCurrentlyCheckedOut = this._folderRepositoryManager.isPullRequestCheckedOut(pullRequestModel);
 				const hasWritePermission = repositoryAccess!.hasWritePermission;
 				const mergeMethodsAvailability = repositoryAccess!.mergeMethodsAvailability;
 				const canEdit = hasWritePermission || this._item.canEdit();
@@ -277,7 +277,7 @@ export class PullRequestViewProvider extends WebviewBase implements vscode.Webvi
 		});
 
 		if (selectedActions) {
-			const isBranchActive = this._item.equals(this._folderRepositoryManager.activePullRequest);
+		const isBranchActive = this._folderRepositoryManager.isPullRequestCheckedOut(this._item);
 
 			const promises = selectedActions.map(async action => {
 				switch (action.type) {

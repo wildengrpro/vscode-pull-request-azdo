@@ -415,6 +415,29 @@ export class FolderRepositoryManager implements vscode.Disposable {
 		this._onDidChangeActivePullRequest.fire();
 	}
 
+	/**
+	 * Check if a PR is actually checked out based on the current git branch.
+	 * Compares the repository's current branch (HEAD) with the PR's source branch.
+	 * @param pullRequest The PR to check
+	 * @returns true if the PR's source branch matches the current git branch
+	 */
+	isPullRequestCheckedOut(pullRequest: PullRequestModel | undefined): boolean {
+		if (!pullRequest) {
+			return false;
+		}
+
+		// Get current branch from repository
+		const currentBranch = this.repository?.state?.HEAD?.name;
+		const prSourceBranch = pullRequest.head?.ref;
+
+		// Both must exist and match
+		if (!currentBranch || !prSourceBranch) {
+			return false;
+		}
+
+		return currentBranch === prSourceBranch;
+	}
+
 	get repository(): Repository {
 		return this._repository;
 	}
