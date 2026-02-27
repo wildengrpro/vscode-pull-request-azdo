@@ -364,7 +364,7 @@ export class BinaryFileCommentPanel extends WebviewBase {
 
 		<div class="comments-container" id="commentsContainer">
 			${threads.length === 0 ? '<div class="empty-state">No comments yet. Be the first to add one!</div>' : ''}
-			${threads.map(thread => this.renderThread(thread)).join('')}
+			${[...threads].reverse().map(thread => this.renderThread(thread)).join('')}
 		</div>
 
 		<div class="input-area">
