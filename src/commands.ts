@@ -29,7 +29,7 @@ import { ITelemetry } from './common/telemetry';
 import { asImageDataURI, fromPRUri, fromReviewUri, ReviewUriParams, toPRUriAzdo } from './common/uri';
 import { formatError } from './common/utils';
 import { SETTINGS_NAMESPACE, URI_SCHEME_PR, URI_SCHEME_REVIEW } from './constants';
-import { isBinaryFile } from './common/fileUtils';
+import { getBinaryFileUris, isBinaryFile } from './common/fileUtils';
 import { getInMemPRContentProvider, provideDocumentContentForChangeModel } from './view/inMemPRContentProvider';
 import { PullRequestsTreeDataProvider } from './view/prsTreeDataProvider';
 import { PullRequestCommentingRangeProvider } from './view/pullRequestCommentingRangeProvider';
@@ -728,12 +728,22 @@ export function registerCommands(
 
 				// Check if the file is binary
 				if (isBinaryFile(fileNode.fileName)) {
-					// For binary files, open the file and the binary file comment panel
+					// For binary files, get the appropriate URIs and open in diff view
 					try {
-						// Open the binary file
-						const fileUri = vscode.Uri.file(pathLib.join(folderManager.repository.rootUri.fsPath, fileNode.fileName));
-						const doc = await vscode.workspace.openTextDocument(fileUri);
-						await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+						const fileUris = await getBinaryFileUris(fileNode, fileNode.pullRequest, folderManager);
+						if (!fileUris) {
+							vscode.window.showErrorMessage('Unable to open binary file');
+							return;
+						}
+
+						// Open the binary file in a diff view
+						await vscode.commands.executeCommand(
+							'vscode.diff',
+							fileUris.baseUri,
+							fileUris.headUri,
+							`${pathLib.basename(fileNode.fileName)} (Diff)`,
+							{ preview: true }
+						);
 
 						// Open the binary file comment panel
 						await BinaryFileCommentPanel.createOrShow(
@@ -811,12 +821,22 @@ export function registerCommands(
 
 				// Check if the file is binary
 				if (isBinaryFile(fileNode.fileName)) {
-					// For binary files, open the file and the binary file comment panel
+					// For binary files, get the appropriate URIs and open in diff view
 					try {
-						// Open the binary file
-						const fileUri = vscode.Uri.file(pathLib.join(folderManager.repository.rootUri.fsPath, fileNode.fileName));
-						const doc = await vscode.workspace.openTextDocument(fileUri);
-						await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+						const fileUris = await getBinaryFileUris(fileNode, fileNode.pullRequest, folderManager);
+						if (!fileUris) {
+							vscode.window.showErrorMessage('Unable to open binary file');
+							return;
+						}
+
+						// Open the binary file in a diff view
+						await vscode.commands.executeCommand(
+							'vscode.diff',
+							fileUris.baseUri,
+							fileUris.headUri,
+							`${pathLib.basename(fileNode.fileName)} (Diff)`,
+							{ preview: true }
+						);
 
 						// Open the binary file comment panel
 						await BinaryFileCommentPanel.createOrShow(
