@@ -24,12 +24,12 @@ const BINARY_EXTENSIONS = new Set([
 	'.jar', '.class', '.pyc'
 ]);
 
-function isBinaryFile(filePath: string): boolean {
+export function isBinaryFile(filePath: string): boolean {
 	const ext = path.extname(filePath).toLowerCase();
 	return BINARY_EXTENSIONS.has(ext);
 }
 
-function isLFSPointer(content: string): boolean {
+export function isLFSPointer(content: string): boolean {
 	return content.startsWith('version https://git-lfs.github.com/spec/');
 }
 

@@ -15,6 +15,7 @@ import { IFileChangeNodeWithUri, IRawFileChange, PullRequest } from './azdo/inte
 import { GHPRComment, GHPRCommentThread, TemporaryComment } from './azdo/prComment';
 import { PullRequestModel } from './azdo/pullRequestModel';
 import { PullRequestOverviewPanel } from './azdo/pullRequestOverview';
+import { BinaryFileCommentPanel } from './azdo/binaryFileCommentPanel';
 import { RepositoriesManager } from './azdo/repositoriesManager';
 import { AzdoUserManager } from './azdo/userManager';
 import { convertRawFileChangeToFileChangeNode, getPositionFromThread, removeLeadingSlash } from './azdo/utils';
@@ -28,7 +29,7 @@ import { ITelemetry } from './common/telemetry';
 import { asImageDataURI, fromPRUri, fromReviewUri, ReviewUriParams, toPRUriAzdo } from './common/uri';
 import { formatError } from './common/utils';
 import { SETTINGS_NAMESPACE, URI_SCHEME_PR, URI_SCHEME_REVIEW } from './constants';
-import { getInMemPRContentProvider, provideDocumentContentForChangeModel } from './view/inMemPRContentProvider';
+import { getInMemPRContentProvider, provideDocumentContentForChangeModel, isBinaryFile } from './view/inMemPRContentProvider';
 import { PullRequestsTreeDataProvider } from './view/prsTreeDataProvider';
 import { PullRequestCommentingRangeProvider } from './view/pullRequestCommentingRangeProvider';
 import { CheckoutManager } from './view/checkoutManager';
@@ -724,7 +725,32 @@ export function registerCommands(
 					return;
 				}
 
-				// Get active editor - handle both pr_azdo:// and file:// URIs
+				// Check if the file is binary
+				if (isBinaryFile(fileNode.fileName)) {
+					// For binary files, open the file and the binary file comment panel
+					try {
+						// Open the binary file
+						const fileUri = vscode.Uri.file(pathLib.join(folderManager.repository.rootUri.fsPath, fileNode.fileName));
+						const doc = await vscode.workspace.openTextDocument(fileUri);
+						await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+
+						// Open the binary file comment panel
+						await BinaryFileCommentPanel.createOrShow(
+							context.extensionPath,
+							folderManager,
+							fileNode.pullRequest,
+							fileNode.filePath.toString(),
+							fileNode.fileName,
+							azdoUserManager,
+						);
+					} catch (error) {
+						Logger.appendLine(`Error handling binary file comment: ${error}`);
+						vscode.window.showErrorMessage(`Failed to open binary file for commenting: ${error}`);
+					}
+					return;
+				}
+
+				// For text files, use the existing line-based review comment logic
 				const editor = vscode.window.activeTextEditor;
 				if (!editor) {
 					vscode.window.showErrorMessage('Please open the file in the editor first');
@@ -782,7 +808,32 @@ export function registerCommands(
 					return;
 				}
 
-				// Get comment text using configured input style
+				// Check if the file is binary
+				if (isBinaryFile(fileNode.fileName)) {
+					// For binary files, open the file and the binary file comment panel
+					try {
+						// Open the binary file
+						const fileUri = vscode.Uri.file(pathLib.join(folderManager.repository.rootUri.fsPath, fileNode.fileName));
+						const doc = await vscode.workspace.openTextDocument(fileUri);
+						await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+
+						// Open the binary file comment panel
+						await BinaryFileCommentPanel.createOrShow(
+							context.extensionPath,
+							folderManager,
+							fileNode.pullRequest,
+							fileNode.filePath.toString(),
+							fileNode.fileName,
+							azdoUserManager,
+						);
+					} catch (error) {
+						Logger.appendLine(`Error handling binary file comment: ${error}`);
+						vscode.window.showErrorMessage(`Failed to open binary file for commenting: ${error}`);
+					}
+					return;
+				}
+
+				// For text files, use the editor-based input
 				const commentText = await getCommentText(`Add comment for ${pathLib.basename(fileNode.fileName)}`);
 
 				if (!commentText) {
