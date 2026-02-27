@@ -163,14 +163,14 @@ const CheckoutButtons = ({ isCurrentlyCheckedOut, isIssue }) => {
 					{checkIcon} Checked Out
 				</button>
 				<button aria-live="polite" disabled={isBusy} onClick={() => onClick('exitReviewMode')}>
-					Exit Review Mode
+					Exit Checkout
 				</button>
 			</>
 		);
 	} else if (!isIssue) {
 		return (
 			<button aria-live="polite" disabled={isBusy} onClick={() => onClick('checkout')}>
-				Checkout
+				{isBusy ? 'Checking out...' : 'Checkout'}
 			</button>
 		);
 	} else {

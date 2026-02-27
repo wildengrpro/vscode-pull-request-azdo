@@ -9,6 +9,7 @@ import { GitErrorCodes } from '../api/api1';
 import { FolderRepositoryManager } from '../azdo/folderRepositoryManager';
 import { PullRequestGitHelper } from '../azdo/pullRequestGitHelper';
 import { PullRequestModel } from '../azdo/pullRequestModel';
+import { PullRequestOverviewPanel } from '../azdo/pullRequestOverview';
 import Logger from '../common/logger';
 import { parseRepositoryRemotes, Remote } from '../common/remote';
 import { ITelemetry } from '../common/telemetry';
@@ -205,7 +206,7 @@ export class CheckoutManager implements vscode.Disposable {
 
 	public async switch(pr: PullRequestModel): Promise<void> {
 		Logger.appendLine(`Checkout> switch to Pull Request #${pr.getPullRequestId()} - start`);
-		this.statusBarItem.text = '$(sync~spin) Switching to Review Mode';
+		this.statusBarItem.text = '$(sync~spin) Checking out branch...';
 		this.statusBarItem.command = undefined;
 		this.statusBarItem.show();
 		this.switchingToReviewMode = true;
@@ -220,6 +221,10 @@ export class CheckoutManager implements vscode.Disposable {
 
 			Logger.appendLine(`Checkout> switch to Pull Request #${pr.getPullRequestId()} - done`);
 			this._telemetry.sendTelemetryEvent('pr.checkout');
+			// Auto-refresh the webpanel to update the UI with the new checkout state
+			if (PullRequestOverviewPanel.currentPanel) {
+				PullRequestOverviewPanel.refresh();
+			}
 		} catch (e) {
 			Logger.appendLine(`Checkout> checkout failed #${JSON.stringify(e)}`);
 			this.switchingToReviewMode = false;
@@ -251,6 +256,10 @@ export class CheckoutManager implements vscode.Disposable {
 		this._updateMessageShown = false;
 		this.statusBarItem.hide();
 		vscode.commands.executeCommand('azdopr.refreshList');
+		// Auto-refresh the webpanel when exiting checkout
+		if (PullRequestOverviewPanel.currentPanel) {
+			PullRequestOverviewPanel.refresh();
+		}
 
 		if (includeLocalBranch) {
 			this.switchingToReviewMode = false;
