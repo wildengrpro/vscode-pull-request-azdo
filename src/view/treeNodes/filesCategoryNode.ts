@@ -68,6 +68,13 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 		this.refresh(this);
 	}
 
+	toggleFileListLayout(): void {
+		const currentLayout = vscode.workspace.getConfiguration(SETTINGS_NAMESPACE).get<string>('fileListLayout');
+		const newLayout = currentLayout === 'tree' ? 'flat' : 'tree';
+		vscode.workspace.getConfiguration(SETTINGS_NAMESPACE).update('fileListLayout', newLayout, vscode.ConfigurationTarget.Global);
+		this.refresh(this);
+	}
+
 	async getChildren(): Promise<TreeNode[]> {
 		let nodes: TreeNode[];
 		const layout = vscode.workspace.getConfiguration(SETTINGS_NAMESPACE).get<string>('fileListLayout');

@@ -897,15 +897,6 @@ export function registerCommands(
 	);
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand('azdopr.toggleFileListLayout', _ => {
-			const config = vscode.workspace.getConfiguration(SETTINGS_NAMESPACE);
-			const currentLayout = config.get<string>('fileListLayout');
-			const newLayout = currentLayout === 'tree' ? 'flat' : 'tree';
-			config.update('fileListLayout', newLayout, true);
-		}),
-	);
-
-	context.subscriptions.push(
 		vscode.commands.registerCommand('azdopr.refreshPullRequest', (prNode: PRNode) => {
 			const folderManager = reposManager.getManagerForPullRequestModel(prNode.pullRequestModel);
 			if (folderManager && prNode.pullRequestModel.equals(folderManager?.activePullRequest)) {
@@ -967,6 +958,15 @@ export function registerCommands(
 			// The command receives the FilesCategoryNode that was clicked
 			if (node && typeof node.toggleCommentsFilter === 'function') {
 				node.toggleCommentsFilter();
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('azdopr.toggleFileListLayout', (node: any) => {
+			// The command receives the FilesCategoryNode that was clicked
+			if (node && typeof node.toggleFileListLayout === 'function') {
+				node.toggleFileListLayout();
 			}
 		})
 	);

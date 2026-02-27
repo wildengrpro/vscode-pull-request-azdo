@@ -449,6 +449,12 @@
 				"title": "Show Only Files With Comments",
 				"category": "AzDO Pull Requests",
 				"icon": "$(filter)"
+			},
+			{
+				"command": "azdopr.toggleFileListLayout",
+				"title": "Toggle File List Layout",
+				"category": "AzDO Pull Requests",
+				"icon": "$(list-tree)"
 			}
 		],
 		"viewsWelcome": [
@@ -714,6 +720,11 @@
 				},
 				{
 					"command": "azdopr.toggleFilesWithCommentsFilter",
+					"when": "view == azdopr:azdo && viewItem =~ /filescategory/",
+					"group": "inline"
+				},
+				{
+					"command": "azdopr.toggleFileListLayout",
 					"when": "view == azdopr:azdo && viewItem =~ /filescategory/",
 					"group": "inline"
 				}
