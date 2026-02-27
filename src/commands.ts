@@ -41,54 +41,35 @@ import { DescriptionNode } from './view/treeNodes/descriptionNode';
 import { GitFileChangeNode, InMemFileChangeNode } from './view/treeNodes/fileChangeNode';
 import { PRNode } from './view/treeNodes/pullRequestNode';
 
-// Track open diff editors to prevent duplicates
-// Key: "prId:filePath", Value: editor
-const openDiffEditors = new Map<string, vscode.TextEditor>();
-
 const _onDidUpdatePR = new vscode.EventEmitter<PullRequest | void>();
 export const onDidUpdatePR: vscode.Event<PullRequest | void> = _onDidUpdatePR.event;
 
 /**
- * Close any existing diff editor for the given PR/file combination
- * and open a new one
+ * Open binary file diff only if no diff for this specific file is currently visible
  */
 async function openBinaryFileDiff(
-	prId: string,
-	filePath: string,
 	baseUri: vscode.Uri,
 	headUri: vscode.Uri,
 	title: string,
 ): Promise<void> {
-	const editorKey = `${prId}:${filePath}`;
+	// Check if a diff editor for this specific file is already visible
+	const baseUriStr = baseUri.toString();
+	const headUriStr = headUri.toString();
 
-	// Close previous diff if it exists
-	const previousEditor = openDiffEditors.get(editorKey);
-	if (previousEditor) {
-		try {
-			// Close the editor without saving
-			await vscode.window.showTextDocument(previousEditor.document, previousEditor.viewColumn);
-			await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-		} catch (e) {
-			// Editor may have been closed already, that's fine
-		}
+	const existingDiff = vscode.window.visibleTextEditors.some(editor => {
+		const editorUri = editor.document.uri.toString();
+		return editorUri === baseUriStr || editorUri === headUriStr;
+	});
+
+	if (existingDiff) {
+		// Diff for this file is already visible, don't open another one
+		return;
 	}
 
-	// Open new diff
-	const editor = await vscode.commands.executeCommand('vscode.diff', baseUri, headUri, title, {
+	// Open new diff only if not already visible
+	await vscode.commands.executeCommand('vscode.diff', baseUri, headUri, title, {
 		preview: false,
-	}) as vscode.TextEditor;
-
-	// Track the new editor
-	if (editor) {
-		openDiffEditors.set(editorKey, editor);
-
-		// Clean up when editor is closed
-		vscode.window.onDidChangeVisibleTextEditors(() => {
-			if (!vscode.window.visibleTextEditors.includes(editor)) {
-				openDiffEditors.delete(editorKey);
-			}
-		});
-	}
+	});
 }
 
 function ensurePR(folderRepoManager: FolderRepositoryManager, pr?: PRNode | PullRequestModel): PullRequestModel {
@@ -783,10 +764,8 @@ export function registerCommands(
 							return;
 						}
 
-						// Open the binary file in a diff view (reuses existing diff if open)
+						// Open the binary file in a diff view (skips if diff already visible for this file)
 						await openBinaryFileDiff(
-							fileNode.pullRequest.id,
-							fileNode.fileName,
 							fileUris.baseUri,
 							fileUris.headUri,
 							`${pathLib.basename(fileNode.fileName)} (Diff)`,
@@ -876,10 +855,8 @@ export function registerCommands(
 							return;
 						}
 
-						// Open the binary file in a diff view (reuses existing diff if open)
+						// Open the binary file in a diff view (skips if diff already visible for this file)
 						await openBinaryFileDiff(
-							fileNode.pullRequest.id,
-							fileNode.fileName,
 							fileUris.baseUri,
 							fileUris.headUri,
 							`${pathLib.basename(fileNode.fileName)} (Diff)`,
