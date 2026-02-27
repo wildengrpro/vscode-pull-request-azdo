@@ -71,18 +71,15 @@ export class BinaryFileCommentPanel extends WebviewBase {
 			// Populate the panel with content for this file
 			await BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
 		}
-
-		// Try to move the panel below the diff editor once both are in the same group
-		try {
-			await vscode.commands.executeCommand('workbench.action.moveEditorToBelow');
-		} catch (e) {
-			// Ignore errors if move command fails
-			Logger.appendLine(`Failed to move panel below: ${e}`);
-		}
 	}
 
-	protected set _currentPanel(panel: BinaryFileCommentPanel | undefined) {
-		BinaryFileCommentPanel.currentPanel = panel;
+	// Move the panel to a group below the diff editor
+	public static async movePanelBelow(): Promise<void> {
+		try {
+			await vscode.commands.executeCommand('workbench.action.moveEditorToBelowGroup');
+		} catch (e) {
+			Logger.appendLine(`Failed to move panel below: ${e}`);
+		}
 	}
 
 	public static refresh(): void {

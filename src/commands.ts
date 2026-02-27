@@ -777,6 +777,9 @@ export function registerCommands(
 							fileNode.fileName,
 							azdoUserManager,
 						);
+
+						// Move the panel below the diff editor
+						await BinaryFileCommentPanel.movePanelBelow();
 					} catch (error) {
 						Logger.appendLine(`Error handling binary file comment: ${error}`);
 						vscode.window.showErrorMessage(`Failed to open comments: ${error}`);
@@ -863,6 +866,9 @@ export function registerCommands(
 							fileNode.fileName,
 							azdoUserManager,
 						);
+
+						// Move the panel below the diff editor
+						await BinaryFileCommentPanel.movePanelBelow();
 					} catch (error) {
 						Logger.appendLine(`Error handling binary file comment: ${error}`);
 						vscode.window.showErrorMessage(`Failed to open comments: ${error}`);
