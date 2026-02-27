@@ -41,8 +41,55 @@ import { DescriptionNode } from './view/treeNodes/descriptionNode';
 import { GitFileChangeNode, InMemFileChangeNode } from './view/treeNodes/fileChangeNode';
 import { PRNode } from './view/treeNodes/pullRequestNode';
 
+// Track open diff editors to prevent duplicates
+// Key: "prId:filePath", Value: editor
+const openDiffEditors = new Map<string, vscode.TextEditor>();
+
 const _onDidUpdatePR = new vscode.EventEmitter<PullRequest | void>();
 export const onDidUpdatePR: vscode.Event<PullRequest | void> = _onDidUpdatePR.event;
+
+/**
+ * Close any existing diff editor for the given PR/file combination
+ * and open a new one
+ */
+async function openBinaryFileDiff(
+	prId: string,
+	filePath: string,
+	baseUri: vscode.Uri,
+	headUri: vscode.Uri,
+	title: string,
+): Promise<void> {
+	const editorKey = `${prId}:${filePath}`;
+
+	// Close previous diff if it exists
+	const previousEditor = openDiffEditors.get(editorKey);
+	if (previousEditor) {
+		try {
+			// Close the editor without saving
+			await vscode.window.showTextDocument(previousEditor.document, previousEditor.viewColumn);
+			await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+		} catch (e) {
+			// Editor may have been closed already, that's fine
+		}
+	}
+
+	// Open new diff
+	const editor = await vscode.commands.executeCommand('vscode.diff', baseUri, headUri, title, {
+		preview: false,
+	}) as vscode.TextEditor;
+
+	// Track the new editor
+	if (editor) {
+		openDiffEditors.set(editorKey, editor);
+
+		// Clean up when editor is closed
+		vscode.window.onDidChangeVisibleTextEditors(() => {
+			if (!vscode.window.visibleTextEditors.includes(editor)) {
+				openDiffEditors.delete(editorKey);
+			}
+		});
+	}
+}
 
 function ensurePR(folderRepoManager: FolderRepositoryManager, pr?: PRNode | PullRequestModel): PullRequestModel {
 	// If the command is called from the command palette, no arguments are passed.
@@ -728,7 +775,7 @@ export function registerCommands(
 
 				// Check if the file is binary
 				if (isBinaryFile(fileNode.fileName)) {
-					// For binary files, get the appropriate URIs and open in diff view
+					// For binary files, open the diff and comment panel
 					try {
 						const fileUris = await getBinaryFileUris(fileNode, fileNode.pullRequest, folderManager);
 						if (!fileUris) {
@@ -736,13 +783,13 @@ export function registerCommands(
 							return;
 						}
 
-						// Open the binary file in a diff view
-						await vscode.commands.executeCommand(
-							'vscode.diff',
+						// Open the binary file in a diff view (reuses existing diff if open)
+						await openBinaryFileDiff(
+							fileNode.pullRequest.id,
+							fileNode.fileName,
 							fileUris.baseUri,
 							fileUris.headUri,
 							`${pathLib.basename(fileNode.fileName)} (Diff)`,
-							{ preview: true }
 						);
 
 						// Open the binary file comment panel
@@ -821,7 +868,7 @@ export function registerCommands(
 
 				// Check if the file is binary
 				if (isBinaryFile(fileNode.fileName)) {
-					// For binary files, get the appropriate URIs and open in diff view
+					// For binary files, open the diff and comment panel
 					try {
 						const fileUris = await getBinaryFileUris(fileNode, fileNode.pullRequest, folderManager);
 						if (!fileUris) {
@@ -829,13 +876,13 @@ export function registerCommands(
 							return;
 						}
 
-						// Open the binary file in a diff view
-						await vscode.commands.executeCommand(
-							'vscode.diff',
+						// Open the binary file in a diff view (reuses existing diff if open)
+						await openBinaryFileDiff(
+							fileNode.pullRequest.id,
+							fileNode.fileName,
 							fileUris.baseUri,
 							fileUris.headUri,
 							`${pathLib.basename(fileNode.fileName)} (Diff)`,
-							{ preview: true }
 						);
 
 						// Open the binary file comment panel

@@ -167,20 +167,168 @@ export class BinaryFileCommentPanel extends WebviewBase {
 
 	private async renderContent(threads: GitPullRequestCommentThread[], currentUserName: string): Promise<string> {
 		const nonce = getNonce();
-		const stylePath = this._webview.asWebviewUri(vscode.Uri.file(path.join(this._extensionPath, 'dist', 'index.css')));
-		const scriptPath = this._webview.asWebviewUri(vscode.Uri.file(path.join(this._extensionPath, 'dist', 'index.js')));
-
 		const fileName_display = path.basename(this._fileName);
 
-		// Render markdown styles
-		const markdownStyles = `
+		// Use inline styles to avoid resource loading issues
+		const styles = `
 			<style>
-				.markdown { line-height: 1.6; }
-				.markdown p { margin: 0.5em 0; }
-				.markdown code { background: var(--vscode-editor-background); padding: 2px 4px; border-radius: 3px; }
-				.markdown pre { background: var(--vscode-editor-background); padding: 8px; overflow-x: auto; }
-				.markdown ul, .markdown ol { padding-left: 20px; }
-				.markdown blockquote { border-left: 3px solid var(--vscode-textBlockQuote-border); padding-left: 8px; margin-left: 0; }
+				* {
+					margin: 0;
+					padding: 0;
+					box-sizing: border-box;
+				}
+
+				body {
+					font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif);
+					font-size: 13px;
+					line-height: 1.5;
+					color: var(--vscode-editor-foreground);
+					background: var(--vscode-editor-background);
+				}
+
+				.comment-panel {
+					display: flex;
+					flex-direction: column;
+					height: 100vh;
+					background: var(--vscode-editor-background);
+					color: var(--vscode-editor-foreground);
+				}
+
+				.panel-header {
+					padding: 12px 16px;
+					border-bottom: 1px solid var(--vscode-divider-background);
+					flex-shrink: 0;
+				}
+
+				.panel-header h2 {
+					margin: 0;
+					font-size: 14px;
+					font-weight: 600;
+				}
+
+				.panel-header p {
+					margin: 4px 0 0 0;
+					font-size: 12px;
+					color: var(--vscode-descriptionForeground);
+				}
+
+				.comments-container {
+					flex: 1;
+					overflow-y: auto;
+					padding: 16px;
+				}
+
+				.comment-thread {
+					margin-bottom: 24px;
+					border: 1px solid var(--vscode-widget-border);
+					border-radius: 4px;
+					padding: 12px;
+				}
+
+				.comment {
+					margin-bottom: 12px;
+				}
+
+				.comment-header {
+					display: flex;
+					justify-content: space-between;
+					align-items: center;
+					margin-bottom: 8px;
+					font-size: 12px;
+				}
+
+				.comment-author {
+					font-weight: 600;
+					color: var(--vscode-foreground);
+				}
+
+				.comment-time {
+					color: var(--vscode-descriptionForeground);
+				}
+
+				.comment-body {
+					font-size: 13px;
+					margin-bottom: 8px;
+					white-space: pre-wrap;
+					word-break: break-word;
+				}
+
+				.reply {
+					margin-left: 20px;
+					padding-top: 8px;
+					border-top: 1px solid var(--vscode-widget-border);
+				}
+
+				.input-area {
+					padding: 16px;
+					border-top: 1px solid var(--vscode-divider-background);
+					background: var(--vscode-editorWidget-background);
+					flex-shrink: 0;
+				}
+
+				.comment-input-wrapper {
+					display: flex;
+					flex-direction: column;
+					gap: 8px;
+				}
+
+				textarea {
+					width: 100%;
+					min-height: 80px;
+					padding: 8px;
+					border: 1px solid var(--vscode-input-border);
+					border-radius: 3px;
+					background: var(--vscode-input-background);
+					color: var(--vscode-input-foreground);
+					font-family: var(--vscode-editor-font-family, monospace);
+					font-size: 13px;
+					resize: vertical;
+				}
+
+				textarea::placeholder {
+					color: var(--vscode-input-placeholderForeground);
+				}
+
+				textarea:focus {
+					outline: none;
+					border-color: var(--vscode-focusBorder);
+				}
+
+				.input-actions {
+					display: flex;
+					justify-content: flex-end;
+					gap: 8px;
+				}
+
+				button {
+					padding: 6px 16px;
+					border: 1px solid var(--vscode-button-border);
+					border-radius: 3px;
+					background: var(--vscode-button-background);
+					color: var(--vscode-button-foreground);
+					cursor: pointer;
+					font-size: 12px;
+					font-family: inherit;
+				}
+
+				button:hover {
+					background: var(--vscode-button-hoverBackground);
+				}
+
+				button.secondary {
+					background: var(--vscode-button-secondaryBackground);
+					color: var(--vscode-button-secondaryForeground);
+				}
+
+				button.secondary:hover {
+					background: var(--vscode-button-secondaryHoverBackground);
+				}
+
+				.empty-state {
+					text-align: center;
+					padding: 40px 16px;
+					color: var(--vscode-descriptionForeground);
+				}
 			</style>
 		`;
 
@@ -190,33 +338,7 @@ export class BinaryFileCommentPanel extends WebviewBase {
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Comments: ${fileName_display}</title>
-	<link href="${stylePath}" rel="stylesheet" />
-	${markdownStyles}
-	<style>
-		body { padding: 0; margin: 0; }
-		.comment-panel { display: flex; flex-direction: column; height: 100vh; background: var(--vscode-editor-background); color: var(--vscode-editor-foreground); }
-		.panel-header { padding: 12px 16px; border-bottom: 1px solid var(--vscode-divider-background); }
-		.panel-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
-		.panel-header p { margin: 4px 0 0 0; font-size: 12px; color: var(--vscode-descriptionForeground); }
-		.comments-container { flex: 1; overflow-y: auto; padding: 16px; }
-		.comment-thread { margin-bottom: 24px; border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 12px; }
-		.comment { margin-bottom: 12px; }
-		.comment-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; }
-		.comment-author { font-weight: 600; color: var(--vscode-foreground); }
-		.comment-time { color: var(--vscode-descriptionForeground); }
-		.comment-body { font-size: 13px; margin-bottom: 8px; }
-		.reply { margin-left: 20px; padding-top: 8px; border-top: 1px solid var(--vscode-widget-border); }
-		.input-area { padding: 16px; border-top: 1px solid var(--vscode-divider-background); background: var(--vscode-editorWidget-background); }
-		.comment-input-wrapper { display: flex; flex-direction: column; gap: 8px; }
-		textarea { width: 100%; min-height: 80px; padding: 8px; border: 1px solid var(--vscode-input-border); border-radius: 3px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-family: var(--vscode-editor-font-family); font-size: 13px; resize: vertical; }
-		textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
-		.input-actions { display: flex; justify-content: flex-end; gap: 8px; }
-		button { padding: 6px 16px; border: 1px solid var(--vscode-button-border); border-radius: 3px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); cursor: pointer; font-size: 12px; }
-		button:hover { background: var(--vscode-button-hoverBackground); }
-		button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-		button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-		.empty-state { text-align: center; padding: 40px 16px; color: var(--vscode-descriptionForeground); }
-	</style>
+	${styles}
 </head>
 <body>
 	<div class="comment-panel">
@@ -247,31 +369,37 @@ export class BinaryFileCommentPanel extends WebviewBase {
 		const commentBtn = document.getElementById('commentBtn');
 		const cancelBtn = document.getElementById('cancelBtn');
 
-		commentBtn.addEventListener('click', () => {
-			const text = commentInput.value.trim();
-			if (text) {
-				vscode.postMessage({
-					command: 'pr.add-comment',
-					args: { text: text, isFileComment: true }
-				});
+		if (commentBtn) {
+			commentBtn.addEventListener('click', () => {
+				const text = commentInput.value.trim();
+				if (text) {
+					vscode.postMessage({
+						command: 'pr.add-comment',
+						args: { text: text, isFileComment: true }
+					});
+					commentInput.value = '';
+				}
+			});
+		}
+
+		if (cancelBtn) {
+			cancelBtn.addEventListener('click', () => {
 				commentInput.value = '';
-			}
-		});
+			});
+		}
 
-		cancelBtn.addEventListener('click', () => {
-			commentInput.value = '';
-		});
-
-		commentInput.addEventListener('keydown', (e) => {
-			if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-				commentBtn.click();
-			}
-		});
+		if (commentInput) {
+			commentInput.addEventListener('keydown', (e) => {
+				if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+					if (commentBtn) commentBtn.click();
+				}
+			});
+		}
 
 		window.addEventListener('message', event => {
 			const message = event.data;
 			if (message.command === 'refresh') {
-				// Refresh will reload the entire panel
+				// Will reload the entire panel
 			}
 		});
 	</script>
