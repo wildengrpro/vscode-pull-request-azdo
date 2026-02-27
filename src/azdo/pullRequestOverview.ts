@@ -131,6 +131,18 @@ export class PullRequestOverviewPanel extends WebviewBase {
 		// This happens when the user closes the panel or when the panel is closed programatically
 		this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
+		// Listen for when the panel becomes visible (activated)
+		// Refresh the content when it becomes active to ensure data is up-to-date
+		this._panel.onDidChangeViewState(
+			(event: vscode.WebviewPanelOnDidChangeViewStateEvent) => {
+				if (event.webviewPanel.visible) {
+					this.update(this._folderRepositoryManager, this._item);
+				}
+			},
+			null,
+			this._disposables,
+		);
+
 		this._folderRepositoryManager.onDidChangeActiveIssue(
 			_ => {
 				if (this._folderRepositoryManager && this._item) {

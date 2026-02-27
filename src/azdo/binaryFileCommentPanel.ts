@@ -455,7 +455,8 @@ export class BinaryFileCommentPanel extends WebviewBase {
 			});
 
 			vscode.window.showInformationMessage('Comment added successfully!');
-			this.refreshPanel();
+			// Await the refresh to ensure the new comment is displayed
+			await this.refreshPanel();
 		} catch (error) {
 			Logger.appendLine(`BinaryFileCommentPanel> Error adding comment: ${error}`);
 			vscode.window.showErrorMessage(`Failed to add comment: ${error}`);
@@ -466,7 +467,8 @@ export class BinaryFileCommentPanel extends WebviewBase {
 		try {
 			await this._pullRequest.createCommentOnThread(threadId, text);
 			vscode.window.showInformationMessage('Reply added successfully!');
-			this.refreshPanel();
+			// Await the refresh to ensure the reply is displayed
+			await this.refreshPanel();
 		} catch (error) {
 			Logger.appendLine(`BinaryFileCommentPanel> Error replying to comment: ${error}`);
 			vscode.window.showErrorMessage(`Failed to reply to comment: ${error}`);
