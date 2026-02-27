@@ -41,6 +41,10 @@ import { DescriptionNode } from './view/treeNodes/descriptionNode';
 import { GitFileChangeNode, InMemFileChangeNode } from './view/treeNodes/fileChangeNode';
 import { PRNode } from './view/treeNodes/pullRequestNode';
 
+// Track diff editors that we've opened to prevent duplicates
+// Key is the filePath
+const openedDiffEditors = new Map<string, { baseUri: string; headUri: string }>();
+
 const _onDidUpdatePR = new vscode.EventEmitter<PullRequest | void>();
 export const onDidUpdatePR: vscode.Event<PullRequest | void> = _onDidUpdatePR.event;
 
@@ -48,25 +52,51 @@ export const onDidUpdatePR: vscode.Event<PullRequest | void> = _onDidUpdatePR.ev
  * Open binary file diff only if no diff for this specific file is currently visible
  */
 async function openBinaryFileDiff(
+	filePath: string,
 	baseUri: vscode.Uri,
 	headUri: vscode.Uri,
 	title: string,
 ): Promise<void> {
-	// Check if a diff editor for this specific file is already visible
 	const baseUriStr = baseUri.toString();
 	const headUriStr = headUri.toString();
 
-	const existingDiff = vscode.window.visibleTextEditors.some(editor => {
-		const editorUri = editor.document.uri.toString();
-		return editorUri === baseUriStr || editorUri === headUriStr;
-	});
+	Logger.appendLine(`BinaryFileCommentPanel> openBinaryFileDiff called for: ${filePath}`);
+	Logger.appendLine(`  baseUri: ${baseUriStr}`);
+	Logger.appendLine(`  headUri: ${headUriStr}`);
 
-	if (existingDiff) {
-		// Diff for this file is already visible, don't open another one
+	// Check if we've already opened this diff in this session
+	if (openedDiffEditors.has(filePath)) {
+		const existing = openedDiffEditors.get(filePath)!;
+		Logger.appendLine(`BinaryFileCommentPanel> Already opened diff for ${filePath}`);
+		Logger.appendLine(`  Previous: base=${existing.baseUri}, head=${existing.headUri}`);
+		Logger.appendLine(`  Current: base=${baseUriStr}, head=${headUriStr}`);
 		return;
 	}
 
-	// Open new diff only if not already visible
+	// Also check if either URI is already visible in an editor window
+	const existingDiff = vscode.window.visibleTextEditors.some(editor => {
+		const editorUri = editor.document.uri.toString();
+		const match = editorUri === baseUriStr || editorUri === headUriStr;
+		if (match) {
+			Logger.appendLine(`BinaryFileCommentPanel> Found existing editor with URI: ${editorUri}`);
+		}
+		return match;
+	});
+
+	if (existingDiff) {
+		Logger.appendLine(`BinaryFileCommentPanel> Skipping diff open - already visible`);
+		openedDiffEditors.set(filePath, { baseUri: baseUriStr, headUri: headUriStr });
+		return;
+	}
+
+	// Track this diff as opened BEFORE we open it, to prevent race conditions
+	openedDiffEditors.set(filePath, { baseUri: baseUriStr, headUri: headUriStr });
+
+	Logger.appendLine(`BinaryFileCommentPanel> Opening new diff for ${filePath}`);
+	Logger.appendLine(`  base: ${baseUriStr}`);
+	Logger.appendLine(`  head: ${headUriStr}`);
+
+	// Open new diff
 	await vscode.commands.executeCommand('vscode.diff', baseUri, headUri, title, {
 		preview: false,
 	});
@@ -766,6 +796,7 @@ export function registerCommands(
 
 						// Open the binary file in a diff view (skips if diff already visible for this file)
 						await openBinaryFileDiff(
+							fileNode.fileName,
 							fileUris.baseUri,
 							fileUris.headUri,
 							`${pathLib.basename(fileNode.fileName)} (Diff)`,
@@ -857,6 +888,7 @@ export function registerCommands(
 
 						// Open the binary file in a diff view (skips if diff already visible for this file)
 						await openBinaryFileDiff(
+							fileNode.fileName,
 							fileUris.baseUri,
 							fileUris.headUri,
 							`${pathLib.basename(fileNode.fileName)} (Diff)`,

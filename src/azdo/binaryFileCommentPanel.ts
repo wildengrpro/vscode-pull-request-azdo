@@ -53,8 +53,8 @@ export class BinaryFileCommentPanel extends WebviewBase {
 
 		// If we already have a panel, show it and update it for the new file
 		if (BinaryFileCommentPanel.currentPanel) {
-			BinaryFileCommentPanel.currentPanel._panel.reveal(vscode.ViewColumn.Beside, true);
-			BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
+			BinaryFileCommentPanel.currentPanel._panel.reveal(vscode.ViewColumn.Active, true);
+			await BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
 		} else {
 			const title = `Comments: ${fileName_display}`;
 			BinaryFileCommentPanel.currentPanel = new BinaryFileCommentPanel(
@@ -67,6 +67,15 @@ export class BinaryFileCommentPanel extends WebviewBase {
 				fileName,
 				userManager,
 			);
+			// Populate the panel with content for this file
+			await BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
+		}
+
+		// Move the panel below the active editor
+		try {
+			await vscode.commands.executeCommand('workbench.action.moveEditorToBelow');
+		} catch (e) {
+			// Ignore errors if move command fails
 		}
 	}
 
