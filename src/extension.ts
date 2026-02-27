@@ -163,7 +163,9 @@ async function init(
 						await commentManager.update(localFileChanges, obsoleteFileChanges);
 
 						Logger.appendLine(`Extension> Initialized comment and data managers for PR #${pr.getPullRequestId()}`);
-					} catch (e) {
+					// Auto-open the Description webpanel when PR is activated
+					Logger.appendLine(`Extension> Auto-opening Description webpanel for PR #${pr.getPullRequestId()}`);
+					await vscode.commands.executeCommand('azdopr.openDescription', pr);					} catch (e) {
 						Logger.appendLine(`Extension> Failed to initialize managers for PR: ${e}`);
 					}
 				} else {
