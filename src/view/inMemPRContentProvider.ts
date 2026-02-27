@@ -12,26 +12,8 @@ import { PullRequestModel } from '../azdo/pullRequestModel';
 import { GitChangeType } from '../common/file';
 import Logger from '../common/logger';
 import { fromPRUri, PRUriParams } from '../common/uri';
+import { isBinaryFile, isLFSPointer } from '../common/fileUtils';
 import { spawn } from 'child_process';
-
-// Binary file extensions that cannot be displayed as text
-const BINARY_EXTENSIONS = new Set([
-	'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.tiff', '.tif',
-	'.zip', '.tar', '.gz', '.7z', '.rar', '.iso',
-	'.exe', '.dll', '.so', '.dylib', '.bin',
-	'.mp3', '.mp4', '.wav', '.avi', '.mov', '.wmv', '.flv',
-	'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-	'.jar', '.class', '.pyc'
-]);
-
-export function isBinaryFile(filePath: string): boolean {
-	const ext = path.extname(filePath).toLowerCase();
-	return BINARY_EXTENSIONS.has(ext);
-}
-
-export function isLFSPointer(content: string): boolean {
-	return content.startsWith('version https://git-lfs.github.com/spec/');
-}
 
 /**
  * Smudge LFS pointer content to get the actual binary file

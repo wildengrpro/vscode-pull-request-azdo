@@ -53,13 +53,13 @@ export class BinaryFileCommentPanel extends WebviewBase {
 
 		// If we already have a panel, show it and update it for the new file
 		if (BinaryFileCommentPanel.currentPanel) {
-			BinaryFileCommentPanel.currentPanel._panel.reveal(vscode.ViewColumn.Below, true);
+			BinaryFileCommentPanel.currentPanel._panel.reveal(vscode.ViewColumn.Beside, true);
 			BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
 		} else {
 			const title = `Comments: ${fileName_display}`;
 			BinaryFileCommentPanel.currentPanel = new BinaryFileCommentPanel(
 				extensionPath,
-				vscode.ViewColumn.Below,
+				vscode.ViewColumn.Beside,
 				title,
 				folderRepositoryManager,
 				pr,
@@ -122,13 +122,17 @@ export class BinaryFileCommentPanel extends WebviewBase {
 	}
 
 	private registerRenderListeners(): void {
-		this._onDidReceiveMessage((message: IRequestMessage) => {
-			if (message.command === 'pr.add-comment') {
-				this.addComment(message.args.text, message.args.isFileComment);
-			} else if (message.command === 'pr.reply-comment') {
-				this.replyToComment(message.args.threadId, message.args.text);
-			}
-		});
+		// Message handler is now implemented via _onDidReceiveMessage override
+	}
+
+	protected async _onDidReceiveMessage(message: IRequestMessage<any>): Promise<any> {
+		if (message.command === 'pr.add-comment') {
+			await this.addComment(message.args.text, message.args.isFileComment);
+		} else if (message.command === 'pr.reply-comment') {
+			await this.replyToComment(message.args.threadId, message.args.text);
+		} else {
+			return super._onDidReceiveMessage(message);
+		}
 	}
 
 	public async updateForFile(
@@ -145,11 +149,11 @@ export class BinaryFileCommentPanel extends WebviewBase {
 		try {
 			// Get all threads and filter for this file
 			const allThreads = await pr.getAllActiveThreadsBetweenAllIterations();
-			const fileThreads = (allThreads || []).filter(thread => thread.path === fileName);
+			const fileThreads = (allThreads || []).filter(thread => thread.threadContext?.filePath === fileName);
 
-			const currentUser = await pr.azdoRepository.getAuthenticatedUser();
+			const currentUserName = await pr.azdoRepository.getAuthenticatedUserName();
 
-			const html = await this.renderContent(fileThreads, currentUser?.displayName || 'Unknown');
+			const html = await this.renderContent(fileThreads, currentUserName || 'Unknown');
 			this._panel.webview.html = html;
 
 			// Update title
@@ -317,7 +321,7 @@ export class BinaryFileCommentPanel extends WebviewBase {
 
 	private async replyToComment(threadId: number, text: string): Promise<void> {
 		try {
-			await this._pullRequest.replyComment(threadId, text);
+			await this._pullRequest.createCommentOnThread(threadId, text);
 			vscode.window.showInformationMessage('Reply added successfully!');
 			this.refreshPanel();
 		} catch (error) {
@@ -328,6 +332,11 @@ export class BinaryFileCommentPanel extends WebviewBase {
 
 	public dispose(): void {
 		BinaryFileCommentPanel.currentPanel = undefined;
-		super.dispose();
+		// Dispose all disposables
+		this._disposables.forEach(disposable => disposable.dispose());
+		// Dispose the webview panel
+		if (this._panel) {
+			this._panel.dispose();
+		}
 	}
 }

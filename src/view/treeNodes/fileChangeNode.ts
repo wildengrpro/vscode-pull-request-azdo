@@ -13,6 +13,7 @@ import { removeLeadingSlash } from '../../azdo/utils';
 import { ViewedState } from '../../common/comment';
 import { DiffHunk } from '../../common/diffHunk';
 import { GitChangeType } from '../../common/file';
+import { isBinaryFile } from '../../common/fileUtils';
 import { fromPRUri, toResourceUri } from '../../common/uri';
 import { FileViewedDecorationProvider } from '../fileViewedDecorationProvider';
 import { DecorationProvider } from '../treeDecorationProvider';
@@ -269,18 +270,6 @@ export class FileChangeNode extends TreeNode implements vscode.TreeItem {
 				reject(error);
 			}
 		});
-	}
-
-	private isBinaryFile(fileName: string): boolean {
-		const binaryExtensions = [
-			'.pdf', '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
-			'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico',
-			'.zip', '.tar', '.gz', '.7z', '.rar',
-			'.exe', '.dll', '.so', '.o',
-			'.bin', '.dat', '.iso',
-		];
-		const ext = path.extname(fileName).toLowerCase();
-		return binaryExtensions.includes(ext);
 	}
 
 	private isLFSPointer(content: Buffer): boolean {
