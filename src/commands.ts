@@ -48,6 +48,94 @@ const _onDidUpdatePR = new vscode.EventEmitter<void>();
 export const onDidUpdatePR = _onDidUpdatePR.event;
 
 /**
+ * Unified handler to open diff editor and comment panel for binary/LFS files
+ * Always closes and reopens fresh to ensure consistent state:
+ * 1. Close the existing comment panel first
+ * 2. Close any existing diff for THIS FILE
+ * 3. Open a fresh diff (will open in ViewColumn.One since it's still active)
+ * 4. Open the comment panel
+ * 5. Move the comment panel below the diff
+ * 6. Refresh Overview panel
+ */
+async function openDiffAndCommentPanel(
+	fileNode: GitFileChangeNode | InMemFileChangeNode,
+	folderManager: FolderRepositoryManager,
+	context: vscode.ExtensionContext,
+	pullRequest: PullRequestModel,
+	azdoUserManager: AzdoUserManager,
+): Promise<void> {
+	try {
+		Logger.appendLine(`openDiffAndCommentPanel> Starting for file: ${fileNode.fileName}`);
+
+		// Step 1: Close the existing comment panel first
+		if (BinaryFileCommentPanel.currentPanel) {
+			Logger.appendLine(`openDiffAndCommentPanel> Closing existing comment panel`);
+			BinaryFileCommentPanel.closePanel();
+		}
+
+		// Wait a moment for the panel to close
+		await new Promise(resolve => setTimeout(resolve, 100));
+
+		// Step 2: Close any existing diffs for THIS FILE across all groups
+		if (vscode.window.tabGroups && vscode.window.tabGroups.all.length > 0) {
+			for (const group of vscode.window.tabGroups.all) {
+				for (const tab of group.tabs) {
+					const input = tab.input as any;
+					// Check if this is a diff editor and contains the file we're working with
+					if (input && input.original && input.modified) {
+						const modifiedPath = input.modified?.uri?.fsPath || '';
+						const originalPath = input.original?.uri?.fsPath || '';
+						const fileName = fileNode.fileName;
+
+						// Check if this diff is for our file and close it
+						if (modifiedPath.includes(fileName) || originalPath.includes(fileName)) {
+							Logger.appendLine(`openDiffAndCommentPanel> Closing existing diff for this file`);
+							await vscode.window.tabGroups.close(tab);
+						}
+					}
+				}
+			}
+		}
+
+		// Wait a moment for the close to complete
+		await new Promise(resolve => setTimeout(resolve, 100));
+
+		// Step 3: Open a fresh diff (ViewColumn.One should still be active, so it opens there)
+		Logger.appendLine(`openDiffAndCommentPanel> Opening fresh diff in ViewColumn.One`);
+		if ('openDiff' in fileNode) {
+			await fileNode.openDiff(folderManager);
+		}
+
+		// Wait for the diff editor to settle
+		await new Promise(resolve => setTimeout(resolve, 150));
+
+		// Step 4: Open the comment panel
+		Logger.appendLine(`openDiffAndCommentPanel> Opening comment panel`);
+		await BinaryFileCommentPanel.createOrShow(
+			context.extensionPath,
+			folderManager,
+			pullRequest,
+			fileNode.filePath.toString(),
+			fileNode.fileName,
+			azdoUserManager,
+		);
+
+		// Step 5: Move the panel below the diff
+		Logger.appendLine(`openDiffAndCommentPanel> Moving panel below diff`);
+		await BinaryFileCommentPanel.movePanelBelow();
+
+		// Step 6: Fire event to refresh the Overview panel
+		Logger.appendLine(`openDiffAndCommentPanel> Firing update event`);
+		_onDidUpdatePR.fire();
+
+		Logger.appendLine(`openDiffAndCommentPanel> Complete`);
+	} catch (error) {
+		Logger.appendLine(`openDiffAndCommentPanel> Error: ${error}`);
+		throw error;
+	}
+}
+
+/**
  * Check if a diff editor is already open across all editor groups
  */
 function isDiffEditorOpen(): boolean {
@@ -758,28 +846,9 @@ export function registerCommands(
 
 				// Check if the file is binary
 				if (isBinaryFile(fileNode.fileName)) {
-					// For binary files, open the diff if it's not already open
 					try {
-						// Only open diff if one isn't already visible
-						if (!isDiffEditorOpen()) {
-							// Use the proven openDiff method that works when clicking the file in the tree
-							if ('openDiff' in fileNode) {
-								await fileNode.openDiff(folderManager);
-							}
-						}
-
-						// Then open the binary file comment panel
-						await BinaryFileCommentPanel.createOrShow(
-							context.extensionPath,
-							folderManager,
-							fileNode.pullRequest,
-							fileNode.filePath.toString(),
-							fileNode.fileName,
-							azdoUserManager,
-						);
-
-						// Move the panel below the diff editor
-						await BinaryFileCommentPanel.movePanelBelow();
+						// Use unified function that handles all binary file diff/panel logic
+						await openDiffAndCommentPanel(fileNode, folderManager, context, fileNode.pullRequest, azdoUserManager);
 					} catch (error) {
 						Logger.appendLine(`Error handling binary file comment: ${error}`);
 						vscode.window.showErrorMessage(`Failed to open comments: ${error}`);
@@ -847,28 +916,9 @@ export function registerCommands(
 
 				// Check if the file is binary
 				if (isBinaryFile(fileNode.fileName)) {
-					// For binary files, open the diff if it's not already open
 					try {
-						// Only open diff if one isn't already visible
-						if (!isDiffEditorOpen()) {
-							// Use the proven openDiff method that works when clicking the file in the tree
-							if ('openDiff' in fileNode) {
-								await fileNode.openDiff(folderManager);
-							}
-						}
-
-						// Then open the binary file comment panel
-						await BinaryFileCommentPanel.createOrShow(
-							context.extensionPath,
-							folderManager,
-							fileNode.pullRequest,
-							fileNode.filePath.toString(),
-							fileNode.fileName,
-							azdoUserManager,
-						);
-
-						// Move the panel below the diff editor
-						await BinaryFileCommentPanel.movePanelBelow();
+						// Use unified function that handles all binary file diff/panel logic
+						await openDiffAndCommentPanel(fileNode, folderManager, context, fileNode.pullRequest, azdoUserManager);
 					} catch (error) {
 						Logger.appendLine(`Error handling binary file comment: ${error}`);
 						vscode.window.showErrorMessage(`Failed to open comments: ${error}`);

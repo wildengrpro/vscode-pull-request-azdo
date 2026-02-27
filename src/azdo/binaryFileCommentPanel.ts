@@ -51,26 +51,26 @@ export class BinaryFileCommentPanel extends WebviewBase {
 	) {
 		const fileName_display = path.basename(fileName);
 
-		// If we already have a panel, show it and update it for the new file
+		// If we already have a panel, close it so we can reopen fresh
 		if (BinaryFileCommentPanel.currentPanel) {
-			BinaryFileCommentPanel.currentPanel._panel.reveal(vscode.ViewColumn.One, true);
-			await BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
-		} else {
-			const title = `Comments: ${fileName_display}`;
-			// Open the panel in the first column (same group as the diff editor)
-			BinaryFileCommentPanel.currentPanel = new BinaryFileCommentPanel(
-				extensionPath,
-				vscode.ViewColumn.One,
-				title,
-				folderRepositoryManager,
-				pr,
-				filePath,
-				fileName,
-				userManager,
-			);
-			// Populate the panel with content for this file
-			await BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
+			BinaryFileCommentPanel.currentPanel._panel.dispose();
+			BinaryFileCommentPanel.currentPanel = undefined;
 		}
+
+		const title = `Comments: ${fileName_display}`;
+		// Open the panel in the first column (same group as the diff editor)
+		BinaryFileCommentPanel.currentPanel = new BinaryFileCommentPanel(
+			extensionPath,
+			vscode.ViewColumn.One,
+			title,
+			folderRepositoryManager,
+			pr,
+			filePath,
+			fileName,
+			userManager,
+		);
+		// Populate the panel with content for this file
+		await BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
 	}
 
 	// Move the panel to a group below the diff editor
@@ -85,6 +85,13 @@ export class BinaryFileCommentPanel extends WebviewBase {
 	public static refresh(): void {
 		if (this.currentPanel) {
 			this.currentPanel.refreshPanel();
+		}
+	}
+
+	public static closePanel(): void {
+		if (this.currentPanel) {
+			this.currentPanel._panel.dispose();
+			this.currentPanel = undefined;
 		}
 	}
 
