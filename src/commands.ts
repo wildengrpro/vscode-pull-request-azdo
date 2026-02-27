@@ -29,7 +29,7 @@ import { ITelemetry } from './common/telemetry';
 import { asImageDataURI, fromPRUri, fromReviewUri, ReviewUriParams, toPRUriAzdo } from './common/uri';
 import { formatError } from './common/utils';
 import { SETTINGS_NAMESPACE, URI_SCHEME_PR, URI_SCHEME_REVIEW } from './constants';
-import { getBinaryFileUris, isBinaryFile } from './common/fileUtils';
+import { isBinaryFile } from './common/fileUtils';
 import { getInMemPRContentProvider, provideDocumentContentForChangeModel } from './view/inMemPRContentProvider';
 import { PullRequestsTreeDataProvider } from './view/prsTreeDataProvider';
 import { PullRequestCommentingRangeProvider } from './view/pullRequestCommentingRangeProvider';
@@ -41,65 +41,37 @@ import { DescriptionNode } from './view/treeNodes/descriptionNode';
 import { GitFileChangeNode, InMemFileChangeNode } from './view/treeNodes/fileChangeNode';
 import { PRNode } from './view/treeNodes/pullRequestNode';
 
-// Track diff editors that we've opened to prevent duplicates
-// Key is the filePath
-const openedDiffEditors = new Map<string, { baseUri: string; headUri: string }>();
-
-const _onDidUpdatePR = new vscode.EventEmitter<PullRequest | void>();
-export const onDidUpdatePR: vscode.Event<PullRequest | void> = _onDidUpdatePR.event;
+/**
+ * Event emitter for pull request updates
+ */
+const _onDidUpdatePR = new vscode.EventEmitter<void>();
+export const onDidUpdatePR = _onDidUpdatePR.event;
 
 /**
- * Open binary file diff only if no diff for this specific file is currently visible
+ * Check if a diff editor is already open
+ * A diff view shows 2 editors side-by-side, so we check for that pattern
  */
-async function openBinaryFileDiff(
-	filePath: string,
-	baseUri: vscode.Uri,
-	headUri: vscode.Uri,
-	title: string,
-): Promise<void> {
-	const baseUriStr = baseUri.toString();
-	const headUriStr = headUri.toString();
-
-	Logger.appendLine(`BinaryFileCommentPanel> openBinaryFileDiff called for: ${filePath}`);
-	Logger.appendLine(`  baseUri: ${baseUriStr}`);
-	Logger.appendLine(`  headUri: ${headUriStr}`);
-
-	// Check if we've already opened this diff in this session
-	if (openedDiffEditors.has(filePath)) {
-		const existing = openedDiffEditors.get(filePath)!;
-		Logger.appendLine(`BinaryFileCommentPanel> Already opened diff for ${filePath}`);
-		Logger.appendLine(`  Previous: base=${existing.baseUri}, head=${existing.headUri}`);
-		Logger.appendLine(`  Current: base=${baseUriStr}, head=${headUriStr}`);
-		return;
+function isDiffEditorOpen(): boolean {
+	// Check if we have 2+ visible editors, which indicates a diff is open
+	if (vscode.window.visibleTextEditors.length >= 2) {
+		Logger.appendLine(`isDiffEditorOpen> Found ${vscode.window.visibleTextEditors.length} visible editors - diff is likely open`);
+		return true;
 	}
 
-	// Also check if either URI is already visible in an editor window
-	const existingDiff = vscode.window.visibleTextEditors.some(editor => {
-		const editorUri = editor.document.uri.toString();
-		const match = editorUri === baseUriStr || editorUri === headUriStr;
-		if (match) {
-			Logger.appendLine(`BinaryFileCommentPanel> Found existing editor with URI: ${editorUri}`);
+	// Also check tab groups for any diff tabs (VS Code shows diffs with special formatting)
+	if (vscode.window.tabGroups) {
+		for (const group of vscode.window.tabGroups.all) {
+			for (const tab of group.tabs) {
+				// Check if this tab indicates it's a diff/comparison editor
+				if (tab.input && (tab.input as any).viewType === 'diff') {
+					Logger.appendLine(`isDiffEditorOpen> Found diff tab: ${tab.label}`);
+					return true;
+				}
+			}
 		}
-		return match;
-	});
-
-	if (existingDiff) {
-		Logger.appendLine(`BinaryFileCommentPanel> Skipping diff open - already visible`);
-		openedDiffEditors.set(filePath, { baseUri: baseUriStr, headUri: headUriStr });
-		return;
 	}
 
-	// Track this diff as opened BEFORE we open it, to prevent race conditions
-	openedDiffEditors.set(filePath, { baseUri: baseUriStr, headUri: headUriStr });
-
-	Logger.appendLine(`BinaryFileCommentPanel> Opening new diff for ${filePath}`);
-	Logger.appendLine(`  base: ${baseUriStr}`);
-	Logger.appendLine(`  head: ${headUriStr}`);
-
-	// Open new diff
-	await vscode.commands.executeCommand('vscode.diff', baseUri, headUri, title, {
-		preview: false,
-	});
+	return false;
 }
 
 function ensurePR(folderRepoManager: FolderRepositoryManager, pr?: PRNode | PullRequestModel): PullRequestModel {
@@ -526,7 +498,7 @@ export function registerCommands(
 
 							const newPR = await pullRequest.abandon();
 							vscode.commands.executeCommand('azdopr.refreshList');
-							_onDidUpdatePR.fire(newPR);
+							_onDidUpdatePR.fire();
 							return newComment;
 						} catch (e) {
 							vscode.window.showErrorMessage(`Unable to close pull request. ${formatError(e)}`);
@@ -786,23 +758,17 @@ export function registerCommands(
 
 				// Check if the file is binary
 				if (isBinaryFile(fileNode.fileName)) {
-					// For binary files, open the diff and comment panel
+					// For binary files, open the diff if it's not already open
 					try {
-						const fileUris = await getBinaryFileUris(fileNode, fileNode.pullRequest, folderManager);
-						if (!fileUris) {
-							vscode.window.showErrorMessage('Unable to open binary file');
-							return;
+						// Only open diff if one isn't already visible
+						if (!isDiffEditorOpen()) {
+							// Use the proven openDiff method that works when clicking the file in the tree
+							if ('openDiff' in fileNode) {
+								await fileNode.openDiff(folderManager);
+							}
 						}
 
-						// Open the binary file in a diff view (skips if diff already visible for this file)
-						await openBinaryFileDiff(
-							fileNode.fileName,
-							fileUris.baseUri,
-							fileUris.headUri,
-							`${pathLib.basename(fileNode.fileName)} (Diff)`,
-						);
-
-						// Open the binary file comment panel
+						// Then open the binary file comment panel
 						await BinaryFileCommentPanel.createOrShow(
 							context.extensionPath,
 							folderManager,
@@ -813,7 +779,7 @@ export function registerCommands(
 						);
 					} catch (error) {
 						Logger.appendLine(`Error handling binary file comment: ${error}`);
-						vscode.window.showErrorMessage(`Failed to open binary file for commenting: ${error}`);
+						vscode.window.showErrorMessage(`Failed to open comments: ${error}`);
 					}
 					return;
 				}
@@ -878,23 +844,17 @@ export function registerCommands(
 
 				// Check if the file is binary
 				if (isBinaryFile(fileNode.fileName)) {
-					// For binary files, open the diff and comment panel
+					// For binary files, open the diff if it's not already open
 					try {
-						const fileUris = await getBinaryFileUris(fileNode, fileNode.pullRequest, folderManager);
-						if (!fileUris) {
-							vscode.window.showErrorMessage('Unable to open binary file');
-							return;
+						// Only open diff if one isn't already visible
+						if (!isDiffEditorOpen()) {
+							// Use the proven openDiff method that works when clicking the file in the tree
+							if ('openDiff' in fileNode) {
+								await fileNode.openDiff(folderManager);
+							}
 						}
 
-						// Open the binary file in a diff view (skips if diff already visible for this file)
-						await openBinaryFileDiff(
-							fileNode.fileName,
-							fileUris.baseUri,
-							fileUris.headUri,
-							`${pathLib.basename(fileNode.fileName)} (Diff)`,
-						);
-
-						// Open the binary file comment panel
+						// Then open the binary file comment panel
 						await BinaryFileCommentPanel.createOrShow(
 							context.extensionPath,
 							folderManager,
@@ -905,7 +865,7 @@ export function registerCommands(
 						);
 					} catch (error) {
 						Logger.appendLine(`Error handling binary file comment: ${error}`);
-						vscode.window.showErrorMessage(`Failed to open binary file for commenting: ${error}`);
+						vscode.window.showErrorMessage(`Failed to open comments: ${error}`);
 					}
 					return;
 				}
