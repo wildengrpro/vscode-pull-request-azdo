@@ -39,7 +39,7 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 		const countText = this.showOnlyFilesWithComments
 			? `${filteredFiles.length}/${totalCount} (with comments)`
 			: `${totalCount}`;
-		this.label = `Changes (${countText})`;
+		this.label = `Files (${countText})`;
 		const item: vscode.TreeItem = {
 			label: this.label,
 			collapsibleState: this.collapsibleState,

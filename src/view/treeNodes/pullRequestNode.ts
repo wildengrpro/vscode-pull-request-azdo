@@ -142,7 +142,7 @@ export class PRNode extends TreeNode {
 
 			const descriptionNode = new DescriptionNode(
 				this,
-				'Description',
+				'Overview',
 				new vscode.ThemeIcon('git-pull-request'),
 				this.pullRequestModel,
 			);
