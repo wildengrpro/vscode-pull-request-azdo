@@ -48,23 +48,23 @@ const _onDidUpdatePR = new vscode.EventEmitter<void>();
 export const onDidUpdatePR = _onDidUpdatePR.event;
 
 /**
- * Check if a diff editor is already open
- * A diff view shows 2 editors side-by-side, so we check for that pattern
+ * Check if a diff editor is already open across all editor groups
  */
 function isDiffEditorOpen(): boolean {
-	// Check if we have 2+ visible editors, which indicates a diff is open
-	if (vscode.window.visibleTextEditors.length >= 2) {
-		Logger.appendLine(`isDiffEditorOpen> Found ${vscode.window.visibleTextEditors.length} visible editors - diff is likely open`);
-		return true;
-	}
-
-	// Also check tab groups for any diff tabs (VS Code shows diffs with special formatting)
+	// Check all tab groups for open diffs
 	if (vscode.window.tabGroups) {
 		for (const group of vscode.window.tabGroups.all) {
 			for (const tab of group.tabs) {
-				// Check if this tab indicates it's a diff/comparison editor
-				if (tab.input && (tab.input as any).viewType === 'diff') {
-					Logger.appendLine(`isDiffEditorOpen> Found diff tab: ${tab.label}`);
+				// Check if the tab label contains indicators of a diff (usually shows ← → or similar)
+				if (tab.label && (tab.label.includes('←') || tab.label.includes('→') || tab.label.includes('↔'))) {
+					Logger.appendLine(`isDiffEditorOpen> Found diff indicator in tab: ${tab.label}`);
+					return true;
+				}
+
+				// Check the input object for diff comparison pattern
+				const input = tab.input as any;
+				if (input && ((input.original && input.modified) || input.viewType === 'diff')) {
+					Logger.appendLine(`isDiffEditorOpen> Found diff comparison: ${tab.label}`);
 					return true;
 				}
 			}

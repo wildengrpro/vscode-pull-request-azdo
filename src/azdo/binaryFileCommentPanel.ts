@@ -53,13 +53,14 @@ export class BinaryFileCommentPanel extends WebviewBase {
 
 		// If we already have a panel, show it and update it for the new file
 		if (BinaryFileCommentPanel.currentPanel) {
-			BinaryFileCommentPanel.currentPanel._panel.reveal(vscode.ViewColumn.Active, true);
+			BinaryFileCommentPanel.currentPanel._panel.reveal(vscode.ViewColumn.One, true);
 			await BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
 		} else {
 			const title = `Comments: ${fileName_display}`;
+			// Open the panel in the first column (same group as the diff editor)
 			BinaryFileCommentPanel.currentPanel = new BinaryFileCommentPanel(
 				extensionPath,
-				vscode.ViewColumn.Beside,
+				vscode.ViewColumn.One,
 				title,
 				folderRepositoryManager,
 				pr,
@@ -71,11 +72,12 @@ export class BinaryFileCommentPanel extends WebviewBase {
 			await BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
 		}
 
-		// Move the panel below the active editor
+		// Try to move the panel below the diff editor once both are in the same group
 		try {
 			await vscode.commands.executeCommand('workbench.action.moveEditorToBelow');
 		} catch (e) {
 			// Ignore errors if move command fails
+			Logger.appendLine(`Failed to move panel below: ${e}`);
 		}
 	}
 
