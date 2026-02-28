@@ -870,46 +870,6 @@ export function registerCommands(
 		}),
 	);
 
-	context.subscriptions.push(
-		vscode.commands.registerCommand('azdopr.addFileComment', async (fileNode: GitFileChangeNode | InMemFileChangeNode) => {
-			/* __GDPR__
-			"azdopr.addFileComment" : {}
-		*/
-			telemetry.sendTelemetryEvent('azdopr.addFileComment');
-
-			try {
-				const folderManager = reposManager.getManagerForPullRequestModel(fileNode.pullRequest);
-				if (!folderManager) {
-					vscode.window.showErrorMessage('Unable to find repository manager');
-					return;
-				}
-
-				// Check if the file is binary
-				if (isBinaryFile(fileNode.fileName)) {
-					try {
-						// Use unified function that handles all binary file diff/panel logic
-						await openDiffAndCommentPanel(fileNode, folderManager, context, fileNode.pullRequest, azdoUserManager);
-					} catch (error) {
-						Logger.appendLine(`Error handling binary file comment: ${error}`);
-						vscode.window.showErrorMessage(`Failed to open comments: ${error}`);
-					}
-					return;
-				}
-
-				// For text files, open the diff view with threads enabled
-				if (folderManager.activePullRequest !== fileNode.pullRequest) {
-					Logger.appendLine(`Commands> addFileComment: Setting active PR #${fileNode.pullRequest.getPullRequestId()}`);
-					folderManager.activePullRequest = fileNode.pullRequest;
-				}
-
-				await fileNode.openDiff(folderManager);
-			} catch (error) {
-				Logger.appendLine(`Error opening diff for file comment: ${error}`);
-				vscode.window.showErrorMessage(`Failed to open diff: ${error}`);
-			}
-		}),
-	);
-
 	// context.subscriptions.push(vscode.commands.registerCommand('azdopr.deleteComment', async (comment: GHPRComment | TemporaryComment) => {
 	// 	/* __GDPR__
 	// 		"azdopr.deleteComment" : {}

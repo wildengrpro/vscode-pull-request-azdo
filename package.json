@@ -417,12 +417,6 @@
 				"icon": "$(comment)"
 			},
 			{
-				"command": "azdopr.addFileComment",
-				"title": "Add File Comment",
-				"category": "AzDO Pull Requests",
-				"icon": "$(comment-discussion)"
-			},
-			{
 				"command": "azdopr.signinAndRefreshList",
 				"title": "Sign in and Refresh",
 				"category": "AzDO Pull Requests"
@@ -712,11 +706,6 @@
 					"command": "azdopr.addCommentOnPRFile",
 					"when": "view == azdopr:azdo && viewItem =~ /filechange/",
 					"group": "inline@2"
-				},
-				{
-					"command": "azdopr.addFileComment",
-					"when": "view =~ /(azdopr|azdoprStatus):azdo/ && viewItem =~ /filechange/",
-					"group": "inline@3"
 				},
 				{
 					"command": "azdopr.toggleFilesWithCommentsFilter",
