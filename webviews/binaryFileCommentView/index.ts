@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import '../common/common.css';
-import './index.css';
+import '../common/shared.css';
 import { main } from './app';
 
 console.log('index.ts loaded, registering load event');
