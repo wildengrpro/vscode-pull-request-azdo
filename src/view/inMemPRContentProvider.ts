@@ -13,62 +13,10 @@ import { GitChangeType } from '../common/file';
 import Logger from '../common/logger';
 import { fromPRUri, PRUriParams } from '../common/uri';
 import { isBinaryFile, isLFSPointer } from '../common/fileUtils';
-import { spawn } from 'child_process';
 
 /**
- * Smudge LFS pointer content to get the actual binary file
+ * Content provider for in-memory PR file changes
  */
-async function smudgeLFSPointer(pointerContent: string, repoPath: string): Promise<Buffer> {
-	return new Promise((resolve, reject) => {
-		try {
-			Logger.appendLine(`LFS> Smudging LFS pointer in content provider`);
-
-			const child = spawn('git', ['lfs', 'smudge'], {
-				cwd: repoPath,
-			});
-
-			const chunks: Buffer[] = [];
-			const errorChunks: Buffer[] = [];
-
-			if (!child.stdout || !child.stderr || !child.stdin) {
-				reject(new Error('Failed to create child process streams'));
-				return;
-			}
-
-			child.stdout.on('data', (chunk: Buffer) => {
-				chunks.push(chunk);
-			});
-
-			child.stderr.on('data', (chunk: Buffer) => {
-				errorChunks.push(chunk);
-			});
-
-			child.on('error', (error) => {
-				Logger.appendLine(`LFS> Failed to spawn git lfs smudge: ${error}`);
-				reject(error);
-			});
-
-			child.on('close', (code) => {
-				if (code !== 0) {
-					const errorMsg = Buffer.concat(errorChunks).toString('utf8');
-					Logger.appendLine(`LFS> git lfs smudge exited with code ${code}: ${errorMsg}`);
-					reject(new Error(`git lfs smudge failed: ${errorMsg}`));
-				} else {
-					const result = Buffer.concat(chunks);
-					Logger.appendLine(`LFS> Successfully smudged LFS pointer, size: ${result.length} bytes`);
-					resolve(result);
-				}
-			});
-
-			child.stdin.write(pointerContent);
-			child.stdin.end();
-		} catch (error) {
-			Logger.appendLine(`LFS> Exception in smudgeLFSPointer: ${error}`);
-			reject(error);
-		}
-	});
-}
-
 export class InMemPRContentProvider implements vscode.TextDocumentContentProvider {
 	private _onDidChange = new vscode.EventEmitter<vscode.Uri>();
 	get onDidChange(): vscode.Event<vscode.Uri> {

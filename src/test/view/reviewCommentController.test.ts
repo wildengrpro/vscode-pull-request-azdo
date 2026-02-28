@@ -121,6 +121,7 @@ describe('ReviewCommentController', function () {
 			activePullRequest as any,
 			GitChangeType.MODIFY,
 			fileName,
+			fileName,
 			'https://example.com',
 			uri,
 			toReviewUri(uri, fileName, undefined, '1', false, { base: true }, rootUri),

@@ -7,8 +7,10 @@
 import * as path from 'path';
 import { GitPullRequestCommentThread } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import * as vscode from 'vscode';
+import { constructDiffUris, openDiff } from '../common/fileUtils';
 import Logger from '../common/logger';
 import { getNonce, IRequestMessage, WebviewBase } from '../common/webview';
+import { convertRawFileChangeToFileChangeNode } from './utils';
 import { FolderRepositoryManager } from './folderRepositoryManager';
 import { PullRequestModel } from './pullRequestModel';
 import { AzdoUserManager } from './userManager';
@@ -122,7 +124,45 @@ export class BinaryFileCommentPanel extends WebviewBase {
 		// Listen for when the panel is disposed
 		this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
+		// Listen for tab group changes to close panel if associated diff editor closes
+		this.setupDiffEditorCloseListener();
+
 		this.registerRenderListeners();
+	}
+
+	private setupDiffEditorCloseListener(): void {
+		// Watch for tab changes and close the panel if the associated diff editor closes
+		if (vscode.window.tabGroups) {
+			const disposable = vscode.window.tabGroups.onDidChangeTabs(() => {
+				if (!this.isDiffEditorForFileOpen()) {
+					Logger.appendLine(`BinaryFileCommentPanel> Associated diff editor closed for ${this._fileName}, closing panel`);
+					BinaryFileCommentPanel.closePanel();
+				}
+			});
+			this._disposables.push(disposable);
+		}
+	}
+
+	private isDiffEditorForFileOpen(): boolean {
+		if (!vscode.window.tabGroups) {
+			return false;
+		}
+
+		const fileName = this._fileName;
+		for (const group of vscode.window.tabGroups.all) {
+			for (const tab of group.tabs) {
+				const input = tab.input as any;
+				// Check if this is a diff editor containing our file
+				if (input && input.original && input.modified) {
+					const modifiedPath = input.modified?.uri?.fsPath || '';
+					const originalPath = input.original?.uri?.fsPath || '';
+					if (modifiedPath.includes(fileName) || originalPath.includes(fileName)) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
 	}
 
 	private registerRenderListeners(): void {
@@ -136,8 +176,64 @@ export class BinaryFileCommentPanel extends WebviewBase {
 			await this.replyToComment(message.args.threadId, message.args.text);
 		} else if (message.command === 'pr.change-thread-status') {
 			await this.changeThreadStatus(message.args.threadId, message.args.status);
+		} else if (message.command === 'openFile') {
+			await this.openFileFromLink(message.args.filePath);
 		} else {
 			return super._onDidReceiveMessage(message);
+		}
+	}
+
+	private async openFileFromLink(filePath: string): Promise<void> {
+		try {
+			const fileName = path.basename(filePath);
+
+			// Get the PR's file changes to find the matching file
+			const fileChangesInfo = await this._pullRequest.getFileChangesInfo();
+
+			// Find the file change that matches (using filename property from IRawFileChange)
+			const matchingFileChange = fileChangesInfo.find(change =>
+				path.basename(change.filename) === fileName ||
+				change.filename === filePath
+			);
+
+			if (!matchingFileChange) {
+				Logger.appendLine(`File ${filePath} not found in PR changes, opening directly`);
+				this.openFileDirectly(filePath);
+				return;
+			}
+
+			// Construct diff URIs from the raw file change
+			const uris = constructDiffUris(matchingFileChange, this._folderRepositoryManager, this._pullRequest);
+
+			if (!uris) {
+				Logger.appendLine(`Could not construct URIs for ${filePath}, opening directly`);
+				this.openFileDirectly(filePath);
+				return;
+			}
+
+			// Open the diff using the centralized function (handles LFS and temp files)
+			await openDiff(uris.filePath, uris.parentFilePath, this._folderRepositoryManager, {
+				fileName,
+				title: `${fileName} (PR Diff)`,
+				preserveFocus: true,
+			});
+
+			Logger.appendLine(`Opened diff for ${filePath} from comment link`);
+		} catch (error) {
+			Logger.appendLine(`Failed to open file from comment link ${filePath}: ${error}`);
+			this.openFileDirectly(filePath);
+		}
+	}
+
+	private async openFileDirectly(filePath: string): Promise<void> {
+		try {
+			const uri = vscode.Uri.file(filePath);
+			const document = await vscode.workspace.openTextDocument(uri);
+			await vscode.window.showTextDocument(document, { preserveFocus: true });
+			Logger.appendLine(`Opened file directly: ${filePath}`);
+		} catch (error) {
+			Logger.appendLine(`Failed to open file directly ${filePath}: ${error}`);
+			vscode.window.showErrorMessage(`Could not open file: ${path.basename(filePath)}`);
 		}
 	}
 

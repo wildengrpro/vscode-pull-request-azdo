@@ -14,6 +14,7 @@ import { PullRequest, ReviewType } from '../common/cache';
 import PullRequestContext from '../common/context';
 import emitter from '../common/events';
 import { useStateProp } from '../common/hooks';
+import { vscode } from '../common/message';
 import { Dropdown } from './dropdown';
 import { commentIcon, editIcon } from './icon';
 import { nbsp, Spaced } from './space';
@@ -260,6 +261,30 @@ const renderers = {
 				wrapLongLines={true}
 				children={value}
 			/>
+		);
+	},
+	link: ({ href, children }) => {
+		// Handle file links specially - open them through VS Code's file opening mechanism
+		const handleClick = (e: React.MouseEvent) => {
+			e.preventDefault();
+
+			// Check if this is a file link (local file path or pr:// scheme)
+			if (href && (href.startsWith('/') || href.startsWith('pr://') || href.startsWith('file://'))) {
+				// Send message to extension to open the file
+				vscode.postMessage({
+					command: 'openFile',
+					args: { filePath: href },
+				});
+			} else if (href) {
+				// For external links, open normally
+				window.open(href, '_blank');
+			}
+		};
+
+		return (
+			<a href={href} onClick={handleClick}>
+				{children}
+			</a>
 		);
 	},
 };
