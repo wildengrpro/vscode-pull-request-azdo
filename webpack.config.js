@@ -383,6 +383,7 @@ module.exports =
 			getWebviewConfig(mode, env, {
 				'webview-pr-description': './webviews/editorWebview/index.ts',
 				'webview-open-pr-view': './webviews/activityBarView/index.ts',
+				'webview-binary-file-comments': './webviews/binaryFileCommentView/index.ts',
 			}),
 		]);
 	};

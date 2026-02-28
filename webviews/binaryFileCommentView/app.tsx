@@ -1,0 +1,27 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as React from 'react';
+// eslint-disable-next-line no-duplicate-imports
+import { useContext, useEffect, useState } from 'react';
+import { render } from 'react-dom';
+import { PullRequest } from '../common/cache';
+import PullRequestContext from '../common/context';
+import { BinaryFileComments } from './binaryFileComments';
+
+export function main() {
+	render(<Root>{pr => <BinaryFileComments {...pr} />}</Root>, document.getElementById('app'));
+}
+
+export function Root({ children }) {
+	const ctx = useContext(PullRequestContext);
+	const [pr, setPR] = useState<PullRequest>(ctx.pr);
+	useEffect(() => {
+		ctx.onchange = setPR;
+		setPR(ctx.pr);
+	}, []);
+	ctx.postMessage({ command: 'ready' });
+	return pr ? children(pr) : <div className="loading-indicator">Loading...</div>;
+}
