@@ -169,9 +169,18 @@ export class FolderRepositoryManager implements vscode.Disposable {
 	public async getActiveGitHubRemotes(allGitHubRemotes: Remote[]): Promise<Remote[]> {
 		const remotesSetting = vscode.workspace.getConfiguration(SETTINGS_NAMESPACE).get<string[]>(REMOTES_SETTING);
 
-		if (!remotesSetting) {
-			Logger.appendLine(`Unable to read remotes setting`, FolderRepositoryManager.ID);
-			return Promise.resolve([]);
+		// If no remotes setting is configured, use all detected Azure DevOps remotes
+		// This is important for multi-root workspaces where the user may not have configured remotes
+		if (!remotesSetting || remotesSetting.length === 0) {
+			if (allGitHubRemotes.length === 0) {
+				Logger.appendLine(`No remotes configured and no remotes found in repository`, FolderRepositoryManager.ID);
+				return Promise.resolve([]);
+			}
+			Logger.appendLine(
+				`No remotes setting configured; using all detected Azure DevOps remotes: ${allGitHubRemotes.map(r => r.remoteName).join(',')}`,
+				FolderRepositoryManager.ID,
+			);
+			return Promise.resolve(allGitHubRemotes);
 		}
 
 		remotesSetting.forEach(remote => {
@@ -1490,7 +1499,13 @@ export class FolderRepositoryManager implements vscode.Disposable {
 		credentialStore: CredentialStore,
 		fileReviewedStatusService: FileReviewedStatusService,
 	): AzdoRepository {
-		return new AzdoRepository(remote, credentialStore, fileReviewedStatusService, this._telemetry);
+		// Extract project name from remote URL for multi-root support
+		const projectName = remote.azureProjectName;
+		Logger.debug(
+			`Creating AzdoRepository for remote '${remote.remoteName}': url=${remote.url}, extractedProjectName=${projectName}`,
+			FolderRepositoryManager.ID,
+		);
+		return new AzdoRepository(remote, credentialStore, fileReviewedStatusService, this._telemetry, projectName);
 	}
 
 	async findUpstreamForItem(item: {

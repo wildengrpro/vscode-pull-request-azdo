@@ -39,6 +39,7 @@ export class AzdoRepository implements vscode.Disposable {
 		private readonly _credentialStore: CredentialStore,
 		private readonly _fileReviewedStatusService: FileReviewedStatusService,
 		private readonly _telemetry: ITelemetry,
+		private readonly _projectName?: string,
 	) {
 		// this.isGitHubDotCom = remote.host.toLowerCase() === 'github.com';
 	}
@@ -63,13 +64,14 @@ export class AzdoRepository implements vscode.Disposable {
 	}
 
 	/**
-	 * Gets the project name from the credential store.
-	 * For backward compatibility with code that needs projectName.
-	 * 
+	 * Gets the project name.
+	 * In multi-root scenarios, uses the project name extracted from the git remote.
+	 * Falls back to credential store for backward compatibility.
+	 *
 	 * @returns The project name or undefined
 	 */
 	public getProjectName(): string | undefined {
-		return this._credentialStore.getProjectName();
+		return this._projectName || this._credentialStore.getProjectName();
 	}
 
 	public async ensureCommentsController(): Promise<void> {
@@ -103,9 +105,13 @@ export class AzdoRepository implements vscode.Disposable {
 			return this._metadata;
 		}
 
-		// Get projectName from credential store (backward compatibility)
-		const projectName = this._credentialStore.getProjectName();
-		Logger.debug(`Searching for repos in ${projectName} project`, AzdoRepository.ID);
+		// Get projectName from constructor (multi-root), fallback to credential store (single-root)
+		const projectName = this.getProjectName();
+		const projectSource = this._projectName ? 'remote URL' : 'credential store';
+		Logger.debug(
+			`Searching for repos in ${projectName} project (from ${projectSource}) for remote '${this.remote.remoteName}'`,
+			AzdoRepository.ID,
+		);
 		const repos = await gitApi?.getRepositories(projectName);
 
 		Logger.debug(
