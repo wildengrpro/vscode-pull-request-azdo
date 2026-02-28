@@ -27,6 +27,7 @@ import * as vscode from 'vscode';
 import * as diff from 'diff';
 import { Repository } from '../api/api';
 import { IReviewThread, ViewedState } from '../common/comment';
+import { constructDiffUris, openDiff } from '../common/fileUtils';
 import { parseDiffAzdo } from '../common/diffHunk';
 import { GitChangeType, InMemFileChange, SlimFileChange } from '../common/file';
 import { GitHubRef } from '../common/githubRef';
@@ -970,70 +971,45 @@ export class PullRequestModel implements IPullRequestModel {
 		pullRequestModel: PullRequestModel,
 		comment: GitPullRequestCommentThread,
 	): Promise<void> {
-		const fileChanges = await pullRequestModel.getFileChangesInfo();
-		// TODO merge base is here also
-		const mergeBase = pullRequestModel.getDiffTarget();
-		const contentChanges = await parseDiffAzdo(fileChanges, folderManager.repository, mergeBase);
-		const change = contentChanges.find(
-			fileChange =>
-				fileChange.fileName === comment.threadContext?.filePath ||
-				fileChange.previousFileName === comment.threadContext?.filePath,
-		);
-		if (!change) {
-			throw new Error(`Can't find matching file`);
-		}
+		try {
+			const filePath = comment.threadContext?.filePath;
+			if (!filePath) {
+				throw new Error('Comment thread has no file path');
+			}
 
-		let headUri, baseUri: vscode.Uri;
-		if (!pullRequestModel.equals(folderManager.activePullRequest)) {
-			const headCommit = pullRequestModel.head!.sha;
-			const fileName = change.status === GitChangeType.DELETE ? change.previousFileName! : change.fileName;
-			const parentFileName = change.previousFileName ?? '';
-			headUri = toPRUriAzdo(
-				vscode.Uri.file(path.resolve(folderManager.repository.rootUri.fsPath, removeLeadingSlash(fileName))),
-				pullRequestModel,
-				change.baseCommit,
-				headCommit,
+			// Get file changes info (returns IRawFileChange[])
+			const fileChanges = await pullRequestModel.getFileChangesInfo();
+
+			// Find matching file change by comparing filenames
+			const matchingFileChange = fileChanges.find(
+				change => change.filename === filePath || change.previous_filename === filePath,
+			);
+
+			if (!matchingFileChange) {
+				throw new Error(`Can't find matching file: ${filePath}`);
+			}
+
+			Logger.appendLine(`openDiffFromComment> Found file: ${matchingFileChange.filename}`);
+
+			// Use centralized URI construction - works for both checked-out and non-checked-out branches
+			const uris = constructDiffUris(matchingFileChange, folderManager, pullRequestModel);
+			if (!uris) {
+				throw new Error(`Could not construct URIs for ${filePath}`);
+			}
+
+			// Open diff using centralized function
+			// Note: review:// URIs already have commit info encoded, so don't pass baseCommit/headCommit
+			const fileName = filePath.split('/').pop() || filePath;
+			await openDiff(uris.filePath, uris.parentFilePath, folderManager, {
 				fileName,
-				false,
-				change.status,
-			);
-			baseUri = toPRUriAzdo(
-				vscode.Uri.file(path.resolve(folderManager.repository.rootUri.fsPath, removeLeadingSlash(parentFileName))),
-				pullRequestModel,
-				change.baseCommit,
-				headCommit,
-				parentFileName,
-				true,
-				change.status,
-			);
-		} else {
-			const uri = vscode.Uri.file(
-				path.resolve(folderManager.repository.rootUri.fsPath, removeLeadingSlash(change.fileName)),
-			);
+				title: `${fileName} (Pull Request)`,
+				preserveFocus: true,
+			});
 
-			headUri =
-				change.status === GitChangeType.DELETE
-					? toReviewUri(uri, undefined, undefined, '', false, { base: false }, folderManager.repository.rootUri)
-					: uri;
-
-			baseUri = toReviewUri(
-				uri,
-				change.status === GitChangeType.RENAME ? change.previousFileName : change.fileName,
-				undefined,
-				change.status === GitChangeType.ADD ? '' : mergeBase,
-				false,
-				{ base: true },
-				folderManager.repository.rootUri,
-			);
+			Logger.appendLine(`openDiffFromComment> Opened diff for ${filePath}`);
+		} catch (e) {
+			Logger.appendLine(`openDiffFromComment> Error: ${formatError(e)}`);
+			throw e;
 		}
-
-		const pathSegments = comment.threadContext?.filePath?.split('/');
-		vscode.commands.executeCommand(
-			'vscode.diff',
-			baseUri,
-			headUri,
-			`${pathSegments[pathSegments.length - 1]} (Pull Request)`,
-			{},
-		);
 	}
 }

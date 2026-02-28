@@ -15,7 +15,7 @@ import { IFileChangeNode, IRawFileChange } from '../azdo/interface';
 import { PullRequestModel } from '../azdo/pullRequestModel';
 import { GitChangeType } from './file';
 import Logger from './logger';
-import { fromPRUri, toReviewUri } from './uri';
+import { fromPRUri, toPRUriAzdo, toReviewUri } from './uri';
 
 /**
  * Set of binary file extensions that cannot be displayed as text
@@ -384,29 +384,45 @@ export function constructDiffUris(
 		const baseFileName = fileChange.previous_filename || fileChange.filename;
 		const headFileName = fileChange.filename;
 
-		// Get SHAs for the file versions
-		const baseSha = fileChange.status === VersionControlChangeType.Add ? '' : (fileChange.previous_file_sha || '');
-		const headSha = fileChange.status === VersionControlChangeType.Delete ? '' : (fileChange.file_sha || '');
+		// Convert VersionControlChangeType to GitChangeType
+		let gitChangeType: GitChangeType;
+		switch (fileChange.status) {
+			case VersionControlChangeType.Add:
+				gitChangeType = GitChangeType.ADD;
+				break;
+			case VersionControlChangeType.Edit:
+				gitChangeType = GitChangeType.MODIFY;
+				break;
+			case VersionControlChangeType.Delete:
+				gitChangeType = GitChangeType.DELETE;
+				break;
+			case VersionControlChangeType.Rename:
+				gitChangeType = GitChangeType.RENAME;
+				break;
+			default:
+				gitChangeType = GitChangeType.MODIFY;
+		}
 
-		// Construct review URIs with commit info
-		const filePath = toReviewUri(
+		// Construct PR URIs with commit info (like tree view does)
+		// This ensures that openDiff() can extract the commits and create temp files for LFS content
+		const filePath = toPRUriAzdo(
 			vscode.Uri.file(path.join(folderManager.repository.rootUri.fsPath, headFileName)),
+			pullRequest as any,
+			fileChange.baseCommit,
+			fileChange.headCommit,
 			headFileName,
-			undefined,
-			headSha,
 			false,
-			{ base: false },
-			folderManager.repository.rootUri,
+			gitChangeType,
 		);
 
-		const parentFilePath = toReviewUri(
+		const parentFilePath = toPRUriAzdo(
 			vscode.Uri.file(path.join(folderManager.repository.rootUri.fsPath, baseFileName)),
+			pullRequest as any,
+			fileChange.baseCommit,
+			fileChange.headCommit,
 			baseFileName,
-			undefined,
-			baseSha,
-			false,
-			{ base: true },
-			folderManager.repository.rootUri,
+			true,
+			gitChangeType,
 		);
 
 		return { filePath, parentFilePath };
