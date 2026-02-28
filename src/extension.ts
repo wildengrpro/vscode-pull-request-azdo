@@ -345,9 +345,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<GitApi
 
 	context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(URI_SCHEME_PR, getInMemPRContentProvider()));
 
-	if (apiImpl.repositories.length > 0) {
-		await init(context, apiImpl, credentialStore, apiImpl.repositories, prTree, liveshareApiPromise);
+	// In multi-root workspaces, wait for git repositories to be discovered
+	// The git API may need time to scan all workspace folders
+	let repositoriesToInit = apiImpl.repositories;
+	if (contextManager.isMultiRoot() && repositoriesToInit.length < workspaceContext.folders.size) {
+		Logger.appendLine(
+			`Multi-root workspace: Expected up to ${workspaceContext.folders.size} repositories but found ${repositoriesToInit.length}. Waiting for git discovery...`
+		);
+
+		// Wait for git to discover repositories with a max timeout of 2 seconds
+		const maxWait = 2000;
+		const startTime = Date.now();
+		while (Date.now() - startTime < maxWait && apiImpl.repositories.length < workspaceContext.folders.size) {
+			await new Promise(resolve => setTimeout(resolve, 100));
+			repositoriesToInit = apiImpl.repositories;
+		}
+
+		Logger.appendLine(`After wait: Found ${repositoriesToInit.length} repositories (elapsed: ${Date.now() - startTime}ms)`);
+	}
+
+	if (repositoriesToInit.length > 0) {
+		Logger.appendLine(`Initializing extension with ${repositoriesToInit.length} repositories`);
+		repositoriesToInit.forEach((repo, i) => {
+			Logger.appendLine(`  Repo ${i + 1}: ${repo.rootUri.fsPath}`);
+		});
+	}
+
+	if (repositoriesToInit.length > 0) {
+		await init(context, apiImpl, credentialStore, repositoriesToInit, prTree, liveshareApiPromise);
 	} else {
+		Logger.appendLine('No repositories found at startup. Waiting for first repository to be opened...');
 		onceEvent(apiImpl.onDidOpenRepository)(r => init(context, apiImpl, credentialStore, [r], prTree, liveshareApiPromise));
 	}
 

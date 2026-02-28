@@ -856,46 +856,16 @@ export function registerCommands(
 					return;
 				}
 
-				// For text files, use the existing line-based review comment logic
-				const editor = vscode.window.activeTextEditor;
-				if (!editor) {
-					vscode.window.showErrorMessage('Please open the file in the editor first');
-					return;
+				// For text files, open the diff view with threads enabled
+				if (folderManager.activePullRequest !== fileNode.pullRequest) {
+					Logger.appendLine(`Commands> addCommentOnPRFile: Setting active PR #${fileNode.pullRequest.getPullRequestId()}`);
+					folderManager.activePullRequest = fileNode.pullRequest;
 				}
 
-				// Get selection or cursor position
-				const selection = editor.selection;
-				let line = selection.active.line + 1; // 1-indexed for API
-
-				// Get comment text using configured input style
-				const commentText = await getCommentText(`Add comment on line ${line}`);
-
-				if (!commentText) {
-					return;
-				}
-
-				// Determine if this is the base (left) or head (right) file
-				const params = fromPRUri(fileNode.filePath);
-				const isBase = params?.isBase ?? false;
-
-				// Create the thread via PR API
-				await fileNode.pullRequest.createThread(commentText, {
-					filePath: fileNode.fileName,
-					line: line,
-					startOffset: 1,
-					endOffset: 1,
-					isLeft: isBase,
-				});
-
-				// Refresh PR description if it's open
-				if (PullRequestOverviewPanel.currentPanel) {
-					PullRequestOverviewPanel.refresh();
-				}
-
-				vscode.window.showInformationMessage('Comment added successfully!');
+				await fileNode.openDiff(folderManager);
 			} catch (error) {
-				Logger.appendLine(`Error adding comment: ${error}`);
-				vscode.window.showErrorMessage(`Failed to add comment: ${error}`);
+				Logger.appendLine(`Error opening diff for review comment: ${error}`);
+				vscode.window.showErrorMessage(`Failed to open diff: ${error}`);
 			}
 		}),
 	);
@@ -926,35 +896,16 @@ export function registerCommands(
 					return;
 				}
 
-				// For text files, use the editor-based input
-				const commentText = await getCommentText(`Add comment for ${pathLib.basename(fileNode.fileName)}`);
-
-				if (!commentText) {
-					return;
+				// For text files, open the diff view with threads enabled
+				if (folderManager.activePullRequest !== fileNode.pullRequest) {
+					Logger.appendLine(`Commands> addFileComment: Setting active PR #${fileNode.pullRequest.getPullRequestId()}`);
+					folderManager.activePullRequest = fileNode.pullRequest;
 				}
 
-				// Determine if this is the base (left) or head (right) file
-				const params = fromPRUri(fileNode.filePath);
-				const isBase = params?.isBase ?? false;
-
-				// Create file-level thread with file path context (line: 1 for file-level)
-				await fileNode.pullRequest.createThread(commentText, {
-					filePath: fileNode.fileName,
-					line: 1,
-					startOffset: 1,
-					endOffset: 1,
-					isLeft: isBase,
-				});
-
-				// Refresh PR description if it's open
-				if (PullRequestOverviewPanel.currentPanel) {
-					PullRequestOverviewPanel.refresh();
-				}
-
-				vscode.window.showInformationMessage(`File comment added to ${fileNode.fileName}`);
+				await fileNode.openDiff(folderManager);
 			} catch (error) {
-				Logger.appendLine(`Error adding file comment: ${error}`);
-				vscode.window.showErrorMessage(`Failed to add file comment: ${error}`);
+				Logger.appendLine(`Error opening diff for file comment: ${error}`);
+				vscode.window.showErrorMessage(`Failed to open diff: ${error}`);
 			}
 		}),
 	);
