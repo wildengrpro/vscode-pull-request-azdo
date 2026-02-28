@@ -456,6 +456,7 @@ export async function openDiff(
 		const title = options?.title || `${fileName} (Pull Request)`;
 		const showOptions = {
 			preserveFocus: options?.preserveFocus ?? true,
+			viewColumn: vscode.ViewColumn.One,
 		};
 
 		// Check if file is tracked by Git LFS

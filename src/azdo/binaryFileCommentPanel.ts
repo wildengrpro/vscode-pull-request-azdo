@@ -31,6 +31,7 @@ export class BinaryFileCommentPanel extends WebviewBase {
 	private _folderRepositoryManager: FolderRepositoryManager;
 	private _userManager: AzdoUserManager;
 	private _extensionPath: string;
+	private _diffEditorCloseListenerDisposable?: vscode.Disposable;
 
 	public static async createOrShow(
 		extensionPath: string,
@@ -60,14 +61,31 @@ export class BinaryFileCommentPanel extends WebviewBase {
 			fileName,
 			userManager,
 		);
+
+		// Disable listener during setup to prevent premature closing during tab changes
+		BinaryFileCommentPanel.currentPanel.disableDiffEditorCloseListener();
+
 		// Populate the panel with content for this file
 		await BinaryFileCommentPanel.currentPanel.updateForFile(folderRepositoryManager, pr, filePath, fileName);
+
+		// Re-enable listener after setup is complete
+		BinaryFileCommentPanel.currentPanel.enableDiffEditorCloseListener();
 	}
 
 	// Move the panel to a group below the diff editor
 	public static async movePanelBelow(): Promise<void> {
 		try {
+			// Disable listener during panel movement to prevent premature closing
+			if (BinaryFileCommentPanel.currentPanel) {
+				BinaryFileCommentPanel.currentPanel.disableDiffEditorCloseListener();
+			}
+
 			await vscode.commands.executeCommand('workbench.action.moveEditorToBelowGroup');
+
+			// Re-enable listener after movement is complete
+			if (BinaryFileCommentPanel.currentPanel) {
+				BinaryFileCommentPanel.currentPanel.enableDiffEditorCloseListener();
+			}
 		} catch (e) {
 			Logger.appendLine(`Failed to move panel below: ${e}`);
 		}
@@ -133,13 +151,50 @@ export class BinaryFileCommentPanel extends WebviewBase {
 	private setupDiffEditorCloseListener(): void {
 		// Watch for tab changes and close the panel if the associated diff editor closes
 		if (vscode.window.tabGroups) {
-			const disposable = vscode.window.tabGroups.onDidChangeTabs(() => {
-				if (!this.isDiffEditorForFileOpen()) {
-					Logger.appendLine(`BinaryFileCommentPanel> Associated diff editor closed for ${this._fileName}, closing panel`);
-					BinaryFileCommentPanel.closePanel();
+			let debounceTimer: NodeJS.Timeout | undefined;
+			this._diffEditorCloseListenerDisposable = vscode.window.tabGroups.onDidChangeTabs(() => {
+				// Clear any pending debounce
+				if (debounceTimer) {
+					clearTimeout(debounceTimer);
 				}
+
+				// Debounce the check to give the diff editor tab time to register
+				debounceTimer = setTimeout(() => {
+					if (!this.isDiffEditorForFileOpen()) {
+						Logger.appendLine(`BinaryFileCommentPanel> Associated diff editor closed for ${this._fileName}, closing panel`);
+						BinaryFileCommentPanel.closePanel();
+					}
+				}, 500); // 500ms debounce
 			});
-			this._disposables.push(disposable);
+			this._disposables.push(this._diffEditorCloseListenerDisposable);
+		}
+	}
+
+	private disableDiffEditorCloseListener(): void {
+		if (this._diffEditorCloseListenerDisposable) {
+			this._diffEditorCloseListenerDisposable.dispose();
+			this._diffEditorCloseListenerDisposable = undefined;
+			Logger.appendLine(`BinaryFileCommentPanel> Disabled diff editor close listener`);
+		}
+	}
+
+	private enableDiffEditorCloseListener(): void {
+		// Re-enable the listener if it was disabled
+		if (!this._diffEditorCloseListenerDisposable && vscode.window.tabGroups) {
+			let debounceTimer: NodeJS.Timeout | undefined;
+			this._diffEditorCloseListenerDisposable = vscode.window.tabGroups.onDidChangeTabs(() => {
+				if (debounceTimer) {
+					clearTimeout(debounceTimer);
+				}
+				debounceTimer = setTimeout(() => {
+					if (!this.isDiffEditorForFileOpen()) {
+						Logger.appendLine(`BinaryFileCommentPanel> Associated diff editor closed for ${this._fileName}, closing panel`);
+						BinaryFileCommentPanel.closePanel();
+					}
+				}, 500);
+			});
+			this._disposables.push(this._diffEditorCloseListenerDisposable);
+			Logger.appendLine(`BinaryFileCommentPanel> Enabled diff editor close listener`);
 		}
 	}
 
@@ -149,15 +204,28 @@ export class BinaryFileCommentPanel extends WebviewBase {
 		}
 
 		const fileName = this._fileName;
+		const fileExt = path.extname(fileName);
+
 		for (const group of vscode.window.tabGroups.all) {
 			for (const tab of group.tabs) {
 				const input = tab.input as any;
-				// Check if this is a diff editor containing our file
+				// Check if this is a diff editor
 				if (input && input.original && input.modified) {
-					const modifiedPath = input.modified?.uri?.fsPath || '';
-					const originalPath = input.original?.uri?.fsPath || '';
-					if (modifiedPath.includes(fileName) || originalPath.includes(fileName)) {
-						return true;
+					// For temp files created from LFS content, check by extension and diff type
+					const modifiedUri = input.modified?.uri;
+					const originalUri = input.original?.uri;
+
+					// Check if either side has matching file extension (for temp files)
+					if (modifiedUri && originalUri) {
+						const modifiedExt = path.extname(modifiedUri.fsPath);
+						const originalExt = path.extname(originalUri.fsPath);
+
+						if ((modifiedExt === fileExt || originalExt === fileExt) &&
+							(modifiedUri.fsPath.includes(fileName) || originalUri.fsPath.includes(fileName) ||
+							 // Also match temp files with same extension
+							 (modifiedExt === fileExt && originalExt === fileExt))) {
+							return true;
+						}
 					}
 				}
 			}
@@ -185,6 +253,10 @@ export class BinaryFileCommentPanel extends WebviewBase {
 
 	private async openFileFromLink(filePath: string): Promise<void> {
 		try {
+			// Disable the diff editor close listener while opening the file
+			// This prevents the listener from immediately closing the panel when the diff editor opens
+			this.disableDiffEditorCloseListener();
+
 			const fileName = path.basename(filePath);
 
 			// Get the PR's file changes to find the matching file
@@ -199,6 +271,8 @@ export class BinaryFileCommentPanel extends WebviewBase {
 			if (!matchingFileChange) {
 				Logger.appendLine(`File ${filePath} not found in PR changes, opening directly`);
 				this.openFileDirectly(filePath);
+				// Re-enable the listener after the operation completes
+				this.enableDiffEditorCloseListener();
 				return;
 			}
 
@@ -208,6 +282,8 @@ export class BinaryFileCommentPanel extends WebviewBase {
 			if (!uris) {
 				Logger.appendLine(`Could not construct URIs for ${filePath}, opening directly`);
 				this.openFileDirectly(filePath);
+				// Re-enable the listener after the operation completes
+				this.enableDiffEditorCloseListener();
 				return;
 			}
 
@@ -219,9 +295,14 @@ export class BinaryFileCommentPanel extends WebviewBase {
 			});
 
 			Logger.appendLine(`Opened diff for ${filePath} from comment link`);
+
+			// Re-enable the listener after the operation completes
+			this.enableDiffEditorCloseListener();
 		} catch (error) {
 			Logger.appendLine(`Failed to open file from comment link ${filePath}: ${error}`);
 			this.openFileDirectly(filePath);
+			// Re-enable the listener after the operation completes
+			this.enableDiffEditorCloseListener();
 		}
 	}
 
