@@ -1,8 +1,15 @@
 # Changelog
 
-### 1.0.0
-- Autodetect Azure DevOps URL and project name from remote.
-- Fixing a lot of bugs and preparation for AI integration.
+## 0.3.0
+- Added functionality for detecting project name from git remote url to support multiple repositories in the same workspace.
+- Change name of Description view to Overview to better match with Azure DevOps terminology.
+- Place files list under a Files dropdown in the tree view to better oragnize the view and to better match with Azure DevOps terminology.
+- Reversed the order of the branches on the Overview pages to match the order in Azure DevOps UI (Source branch on the left and Target branch on the right).
+- Automatic opening of Overview page when user clicks on a PR in the tree view.
+- Provide ability to fetch and view diffs of Git LFS/binary files for which VSCode has editors and/or extensions (ex. PDF, images, etc.); stores files as temporary files and requires Git LFS installed on system.
+- Initial improved commenting experience for Git LFS/binary files using an automatically positioned editor that displaces a webview-based comment panel for the viewed file/diff. The comment panel automatically closes when the file is closed or editor focus changes.
+- Added filter to show files with comments in the Files dropdown in the tree view.
+- Added ability to change the Files view between tree and list views.
 
 ## 0.2.3
 - Fixed [#86](https://github.com/ankitbko/vscode-pull-request-azdo/issues/86) thanks to [danigt91](https://github.com/danigt91)

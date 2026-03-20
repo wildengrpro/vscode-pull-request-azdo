@@ -29,7 +29,7 @@ import { ITelemetry } from './common/telemetry';
 import { asImageDataURI, fromPRUri, fromReviewUri, ReviewUriParams, toPRUriAzdo } from './common/uri';
 import { formatError } from './common/utils';
 import { SETTINGS_NAMESPACE, URI_SCHEME_PR, URI_SCHEME_REVIEW } from './constants';
-import { isBinaryFile } from './common/fileUtils';
+import { isBinaryFile, isLFSTrackedFile } from './common/fileUtils';
 import { getInMemPRContentProvider, provideDocumentContentForChangeModel } from './view/inMemPRContentProvider';
 import { PullRequestsTreeDataProvider } from './view/prsTreeDataProvider';
 import { PullRequestCommentingRangeProvider } from './view/pullRequestCommentingRangeProvider';
@@ -832,21 +832,38 @@ export function registerCommands(
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('azdopr.addCommentOnPRFile', async (fileNode: GitFileChangeNode | InMemFileChangeNode) => {
+			Logger.appendLine(`Commands> addCommentOnPRFile: HANDLER CALLED for file: ${fileNode?.fileName || 'unknown'}`);
+
 			/* __GDPR__
 			"azdopr.addCommentOnPRFile" : {}
 		*/
 			telemetry.sendTelemetryEvent('azdopr.addCommentOnPRFile');
 
 			try {
+				Logger.appendLine(`Commands> addCommentOnPRFile: Getting folder manager`);
 				const folderManager = reposManager.getManagerForPullRequestModel(fileNode.pullRequest);
 				if (!folderManager) {
+					Logger.appendLine(`Commands> addCommentOnPRFile: No folder manager found`);
 					vscode.window.showErrorMessage('Unable to find repository manager');
 					return;
 				}
 
-				// Check if the file is binary
-				if (isBinaryFile(fileNode.fileName)) {
+				// Check if the file is binary (by extension or LFS tracking)
+				// Use just the basename for git check-attr to properly match .gitattributes patterns
+				const fileName = pathLib.basename(fileNode.fileName);
+				Logger.appendLine(`Commands> addCommentOnPRFile: Checking if ${fileName} is binary`);
+				const isBinaryExt = isBinaryFile(fileName);
+				Logger.appendLine(`Commands> addCommentOnPRFile: isBinaryFile returned ${isBinaryExt}`);
+
+				const isLFS = await isLFSTrackedFile(fileName, folderManager);
+				Logger.appendLine(`Commands> addCommentOnPRFile: isLFSTrackedFile returned ${isLFS}`);
+
+				const isBinary = isBinaryExt || isLFS;
+				Logger.appendLine(`Commands> addCommentOnPRFile: Final isBinary result: ${isBinary}`);
+
+				if (isBinary) {
 					try {
+						Logger.appendLine(`Commands> addCommentOnPRFile: Opening as binary file`);
 						// Use unified function that handles all binary file diff/panel logic
 						await openDiffAndCommentPanel(fileNode, folderManager, context, fileNode.pullRequest, azdoUserManager);
 					} catch (error) {
@@ -857,6 +874,7 @@ export function registerCommands(
 				}
 
 				// For text files, open the diff view with threads enabled
+				Logger.appendLine(`Commands> addCommentOnPRFile: Opening as text file`);
 				if (folderManager.activePullRequest !== fileNode.pullRequest) {
 					Logger.appendLine(`Commands> addCommentOnPRFile: Setting active PR #${fileNode.pullRequest.getPullRequestId()}`);
 					folderManager.activePullRequest = fileNode.pullRequest;
@@ -864,7 +882,7 @@ export function registerCommands(
 
 				await fileNode.openDiff(folderManager);
 			} catch (error) {
-				Logger.appendLine(`Error opening diff for review comment: ${error}`);
+				Logger.appendLine(`Commands> addCommentOnPRFile: Caught exception: ${error}`);
 				vscode.window.showErrorMessage(`Failed to open diff: ${error}`);
 			}
 		}),

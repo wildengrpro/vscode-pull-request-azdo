@@ -1,21 +1,16 @@
-# Review and manage your Azure Devops pull requests directly in VS Code
+# Review and manage existing Azure DevOps pull requests directly in VS Code
 
-![Build and Test](https://github.com/ankitbko/vscode-pull-request-azdo/workflows/Build%20and%20Test/badge.svg?branch=master&event=push)
+This extension is originally forked from [Azure Devops Pull Requests for Visual Studio Code](https://https://github.com/ankitbko/vscode-pull-request-azdo). The extension only works with _git_ based repository. _TFVC_ is not supported. Below are some the features that extension supports.
 
-This extension is inspired and based on [Github Pull Request Extension for VS Code](https://github.com/Microsoft/vscode-pull-request-github). The extension only works with _git_ based repository. _TFVC_ is not supported. Below are some the features that extension supports. Read about all the features in [wiki](https://github.com/ankitbko/vscode-pull-request-azdo/wiki).
-
-- Authenticating and connecting VS Code to Azure Devops.
+- Authenticating and connecting VS Code to Azure DevOps.
 - Listing and browsing PRs from within VS Code.
 - Reviewing PRs from within VS Code with in-editor commenting.
-- Validating PRs from within VS Code with easy checkouts.
+- Contributing to PRs while reviewing from within VS Code with easy checkouts.
 - Suggest edits to the PR Author. Author can apply edits directly from Description page.
 - Mark file as viewed when reviewing PR.
-
-You can read more about the basic features in my [blog](https://ankitbko.github.io/blog/2021/01/azdo-pr-vscode-extension/).
-
-> **Note From Author**: I created this extension during last 2 weeks of December 2020 as a fun side project. Having never created a VS Code Extension before this was quite a journey. I am currently planning to get this to somewhat stable state before adding more features to it. Please try this extension and report any bugs by raising issue. Since this is a fork of Github PR Extension I will try to backport important updates from upstream to this extension. If you feel there has been an important bug fix or feature update in upstream that you would like in this extension, please raise an Issue here with link to the PR or Issue in upstream.
-
-> **Disclaimer**: Although I work at Microsoft and this is a fork of Github PR Extension, this extension is not an official release or supported by Microsoft. This is a side project that I will try to maintain in my free time. Any help is always appreciated.
+- Supports multiple repositories in the same workspace (i.e. multiroot workspace)
+- Supports viewing Git LFS files in PRs without checkout (requires Git LFS extension to be installed)
+- Comment functionality with Git LFS files such as PDF, images, and other binary files in PRs (requires PDF extension to be installed)
 
 ![PR Diff](documentation/images/pr_modified.jpg)
 ![PR Dashboard](documentation/images/pr_dashboard.jpg)
@@ -25,15 +20,11 @@ You can read more about the basic features in my [blog](https://ankitbko.github.
 It's easy to get started with Azure Devops Pull Requests for Visual Studio Code. Simply follow these steps to get started.
 
 1. Make sure you have VSCode version 1.52.0 or higher.
+1.
 1. Reload VS Code after the installation (click the reload button next to the extension).
 1. Open your desired Azure Devops repository.
-1. (Optional) Extension will autodetect the AzDO URL from git remote. In case it fails, you can configure the `azdoPullRequests.projectName` and `azdoPullRequests.orgUrl` setting. You can configure it in workspace settings and commit it so others in your team wouldn't need to do this configuration again. (Look at the next section to understand the format of these settings).
-1. Signin to VS Code using same Microsoft account that you use to signin to Azure Devops. Authentication will work automatically. **PAT token is no longer required**.
-1. You should be good to go!
-
-## Features
-
-Learn all about different features of the extension in the [wiki](https://github.com/ankitbko/vscode-pull-request-azdo/wiki).
+1. (Optional) Extension will autodetect the Azure DevOps URL from git remote. In case it fails, you can configure the `azdoPullRequests.projectName` and `azdoPullRequests.orgUrl` setting. You can configure it in workspace settings and commit it so others in your team wouldn't need to do this configuration again. (Look at the next section to understand the format of these settings).
+1. Signin to VS Code using same Microsoft account that you use to signin to Azure DevOps. Authentication will work automatically.
 
 ## Configuring the extension
 
@@ -41,14 +32,14 @@ Learn all about different features of the extension in the [wiki](https://github
 
 - _type_: string
 - _required_: true
-- _Description_: The organization URL of Azure Devops. You can get it from the URL of the AZDO. This is typically the first segment of URL after host name in AZDO. `https://dev.azure.com/<org_name>` or `https://<org_name>.visualstudio.com`. You will need to enter the complete URL.
-- _Example_: `https://dev.azure.com/anksinha` or `https://anksinha.visualstudio.com`
+- _Description_: The organization URL of Azure Devops. You can get it from the URL of the Azure DevOps. This is typically the first segment of URL after host name in Azure Devops: `https://dev.azure.com/<org_name>` or `https://<org_name>.visualstudio.com`. You will need to enter the complete URL.
+- _Example_: `https://dev.azure.com/wildengrpro` or `https://wildengrpro.visualstudio.com`
 
 #### azdoPullRequests.projectName
 
 - _type_: string
-- _required_: true
-- _Description_: The project in the Azure Devops. This is typically the next segment of URL after organization name in AZDO. `https://dev.azure.com/<org_name>/<project_name>` or `https://<org_name>.visualstudio.com/<project_name>`. **Do not enter the complete URL, you only need to enter the _project_name_ part**.
+- _required_: false
+- _Description_: The project name in Azure DevOps. This is typically the next segment of URL after organization name in Azure DevOps. `https://dev.azure.com/<org_name>/<project_name>` or `https://<org_name>.visualstudio.com/<project_name>`. **Do not enter the complete URL, you only need to enter the _project_name_ part**.  You can also leave this blank as the extension will try to auto-detect the project name from git remote URL, but if it fails to detect you will need to enter this value, in which case multiple repositories in the same workspace will not work as you can only enter one project name.
 - _Example_: `prExtension`
 
 #### azdoPullRequests.logLevel
@@ -63,7 +54,7 @@ Learn all about different features of the extension in the [wiki](https://github
 - _type_: enum
 - _required_: false
 - _default_: mergebase
-- _Description_: The commit to use to get diff against the PR branch's HEAD. Read more about different options in [wiki](https://github.com/ankitbko/vscode-pull-request-azdo/wiki/Diff-Options-HEAD-vs-Merge-Base)
+- _Description_: The commit to use to get diff against the PR branch's HEAD. Read more about different options in [wiki](https://github.com/wildengrpro/vscode-pull-request-azdo/wiki/Diff-Options-HEAD-vs-Merge-Base)
 
 #### azdoPullRequests.patToken
 - _type_: string
@@ -79,10 +70,12 @@ Learn all about different features of the extension in the [wiki](https://github
 1. In some cases, user avatar image does not show up in Dashboard.
 1. Reactions do not work.
 
-## Questions? Authentication?
+## Issues
 
-See our [wiki](https://github.com/ankitbko/vscode-pull-request-azdo/wiki) for our FAQ.
+Please submit issues here: [Issues](https://github.com/wildengrpro/vscode-pull-request-azdo/issues)
+
+Please check the existing issues before submitting a new issue. If you are seeing an issue, please submit detailed steps to reproduce the issue along with screenshots and logs if possible.
 
 ## Contributing
 
-TODO
+If you are interested in contributing to the extension, please submit a pull request. Please make sure to follow the existing code style and add tests for any new functionality.
