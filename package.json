@@ -1,6 +1,6 @@
 {
-	"name": "vscode-pull-request-azdo",
-	"displayName": "AzDO Pull Requests",
+	"name": "azdo-pull-requests-vscode",
+	"displayName": "Azure DevOps Pull Requests in VSCode",
 	"description": "Pull Request Provider for Azure Devops",
 	"icon": "",
 	"repository": {
@@ -12,7 +12,7 @@
 	},
 	"enableProposedApi": false,
 	"preview": true,
-	"version": "0.0.1",
+	"version": "0.3.0",
 	"publisher": "wildengrpro",
 	"engines": {
 		"vscode": "^1.97.0"
