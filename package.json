@@ -12,7 +12,7 @@
 	},
 	"enableProposedApi": false,
 	"preview": true,
-	"version": "0.3.0",
+	"version": "0.3.2",
 	"publisher": "MMT",
 	"engines": {
 		"vscode": "^1.97.0"
