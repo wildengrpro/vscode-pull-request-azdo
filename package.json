@@ -341,6 +341,12 @@
 				"category": "AzDO Pull Requests"
 			},
 			{
+				"command": "azdopr.toggleOpenMode",
+				"title": "Toggle File Open Mode (File/Diff)",
+				"icon": "$(compare-changes)",
+				"category": "AzDO Pull Requests"
+			},
+			{
 				"command": "azdopr.refreshChanges",
 				"title": "Refresh",
 				"icon": "$(refresh)",
@@ -714,6 +720,11 @@
 				},
 				{
 					"command": "azdopr.toggleFileListLayout",
+					"when": "view == azdopr:azdo && viewItem =~ /filescategory/",
+					"group": "inline"
+				},
+				{
+					"command": "azdopr.toggleOpenMode",
 					"when": "view == azdopr:azdo && viewItem =~ /filescategory/",
 					"group": "inline"
 				}

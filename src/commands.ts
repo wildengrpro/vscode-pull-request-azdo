@@ -1043,4 +1043,13 @@ export function registerCommands(
 			}
 		})
 	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('azdopr.toggleOpenMode', (node: any) => {
+			// The command receives the FilesCategoryNode that was clicked
+			if (node && typeof node.toggleOpenMode === 'function') {
+				node.toggleOpenMode();
+			}
+		})
+	);
 }

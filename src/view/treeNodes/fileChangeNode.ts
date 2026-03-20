@@ -199,15 +199,19 @@ export class FileChangeNode extends TreeNode implements vscode.TreeItem {
 		const fileName = path.basename(this.filePath.fsPath);
 
 		try {
-			// Use centralized openDiff function from fileUtils
+			// Get the open mode for this PR
+			const openMode = folderManager.getFileOpenMode(this.pullRequest);
+
+			// Call openDiff with the mode - it handles LFS smudging and both file/diff opening
 			await openDiff(this.filePath, this.parentFilePath, folderManager, {
 				fileName,
 				title: `${fileName} (Pull Request)`,
 				preserveFocus: true,
 				pullRequest: this.pullRequest,
+				openMode,
 			});
 		} catch (error) {
-			Logger.appendLine(`FileChangeNode> Error opening diff: ${error}`);
+			Logger.appendLine(`FileChangeNode> Error opening file: ${error}`);
 			vscode.window.showErrorMessage(`Failed to open file: ${error}`);
 		}
 	}

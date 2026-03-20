@@ -5,6 +5,8 @@
 
 import * as vscode from 'vscode';
 import { SETTINGS_NAMESPACE } from '../../constants';
+import { FolderRepositoryManager } from '../../azdo/folderRepositoryManager';
+import { PullRequestModel } from '../../azdo/pullRequestModel';
 import { DirectoryTreeNode } from './directoryTreeNode';
 import { GitFileChangeNode, RemoteFileChangeNode } from './fileChangeNode';
 import { TreeNode, TreeNodeParent } from './treeNode';
@@ -16,7 +18,12 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 	private directories: TreeNode[] = [];
 	private showOnlyFilesWithComments: boolean = false;
 
-	constructor(public parent: TreeNodeParent, private _fileChanges: (GitFileChangeNode | RemoteFileChangeNode)[]) {
+	constructor(
+		public parent: TreeNodeParent,
+		private _fileChanges: (GitFileChangeNode | RemoteFileChangeNode)[],
+		private _folderReposManager?: FolderRepositoryManager,
+		private _pullRequestModel?: PullRequestModel,
+	) {
 		super();
 		this.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
 
@@ -72,6 +79,16 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 		const currentLayout = vscode.workspace.getConfiguration(SETTINGS_NAMESPACE).get<string>('fileListLayout');
 		const newLayout = currentLayout === 'tree' ? 'flat' : 'tree';
 		vscode.workspace.getConfiguration(SETTINGS_NAMESPACE).update('fileListLayout', newLayout, vscode.ConfigurationTarget.Global);
+		this.refresh(this);
+	}
+
+	toggleOpenMode(): void {
+		if (!this._folderReposManager || !this._pullRequestModel) {
+			return;
+		}
+		const currentMode = this._folderReposManager.getFileOpenMode(this._pullRequestModel);
+		const newMode = currentMode === 'diff' ? 'file' : 'diff';
+		this._folderReposManager.setFileOpenMode(this._pullRequestModel, newMode);
 		this.refresh(this);
 	}
 

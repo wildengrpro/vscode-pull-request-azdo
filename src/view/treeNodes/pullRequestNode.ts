@@ -180,11 +180,9 @@ export class PRNode extends TreeNode {
 			const result: TreeNode[] = [descriptionNode];
 
 			// Create Changes category node with file count
-			const changesNode = new FilesCategoryNode(this, this._fileChanges);
-			result.push(changesNode);
+		const changesNode = new FilesCategoryNode(this, this._fileChanges, this._folderReposManager, this.pullRequestModel);		result.push(changesNode);
 
-			this.childrenDisposables = result;
-			return result;
+		this.childrenDisposables = result;			return result;
 		} catch (e) {
 			Logger.appendLine(e);
 			return [];

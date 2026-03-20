@@ -433,13 +433,89 @@ export function constructDiffUris(
 }
 
 /**
- * Opens a diff view for a file, handling LFS files with temp files
+ * Ensures an LFS file is smudged by running git lfs pull for the specific file.
+ * This is needed when the file is checked out but still contains a pointer.
+ *
+ * @param filePath The URI of the file to ensure is smudged
+ * @param folderManager The folder repository manager
+ * @returns A promise that resolves when the file is smudged (or immediately if not needed)
+ */
+export async function ensureLFSFileSmudged(filePath: vscode.Uri, folderManager: FolderRepositoryManager): Promise<void> {
+	const repoRoot = folderManager.repository.rootUri.fsPath;
+	const relativePath = path.relative(repoRoot, filePath.fsPath);
+
+	try {
+		// Read the file to check if it's a pointer
+		let isPointer = false;
+		try {
+			const content = fs.readFileSync(filePath.fsPath, 'utf-8');
+			isPointer = isLFSPointer(content);
+		} catch (readError) {
+			// If we can't read it, assume it might be a pointer
+			isPointer = true;
+		}
+
+		if (!isPointer) {
+			// File is not a pointer, no need to pull
+			return;
+		}
+
+		Logger.appendLine(`FileUtils> File is LFS pointer, pulling: ${path.basename(filePath.fsPath)}`);
+
+		// Run git lfs pull for this specific file
+		return new Promise<void>((resolve, reject) => {
+			const child = spawn('git', ['lfs', 'pull', '--include', relativePath], {
+				cwd: repoRoot,
+			});
+
+			let error = '';
+			let output = '';
+
+			if (child.stdout) {
+				child.stdout.on('data', (chunk: Buffer) => {
+					output += chunk.toString('utf8');
+				});
+			}
+
+			if (child.stderr) {
+				child.stderr.on('data', (chunk: Buffer) => {
+					error += chunk.toString('utf8');
+				});
+			}
+
+			child.on('close', (code) => {
+				if (code === 0) {
+					Logger.appendLine(`FileUtils> Git LFS pull succeeded for ${relativePath}`);
+					resolve();
+				} else {
+					const errorMsg = `Git LFS pull failed with code ${code}: ${error}`;
+					Logger.appendLine(`FileUtils> ${errorMsg}`);
+					reject(new Error(errorMsg));
+				}
+			});
+
+			child.on('error', (err) => {
+				Logger.appendLine(`FileUtils> Error running git lfs pull: ${err}`);
+				reject(err);
+			});
+		});
+	} catch (error) {
+		Logger.appendLine(`FileUtils> Error ensuring LFS file is smudged: ${error}`);
+		throw error;
+	}
+}
+
+/**
+ * Opens a file or diff view, handling LFS files properly
+ * This is the central entry point for file opening that handles:
+ * - LFS pointer smudging (when checked out)
+ * - Opening as a file or diff based on mode
  *
  * @param filePath The URI of the modified file version
  * @param parentFilePath The URI of the base file version
  * @param folderManager The folder repository manager
- * @param options Additional options for opening the diff
- * @returns A promise that resolves when the diff is opened
+ * @param options Additional options for opening the file/diff
+ * @returns A promise that resolves when the file/diff is opened
  */
 export async function openDiff(
 	filePath: vscode.Uri,
@@ -450,6 +526,7 @@ export async function openDiff(
 		title?: string;
 		preserveFocus?: boolean;
 		pullRequest?: PullRequestModel;
+		openMode?: 'file' | 'diff'; // 'file' to open file directly, 'diff' for diff view
 	}
 ): Promise<void> {
 	try {
@@ -459,6 +536,7 @@ export async function openDiff(
 			preserveFocus: options?.preserveFocus ?? true,
 			viewColumn: vscode.ViewColumn.One,
 		};
+		const openMode = options?.openMode || 'diff';
 
 		// Check if the branch is checked out
 		const isCheckedOut = options?.pullRequest ? folderManager.isPullRequestCheckedOut(options.pullRequest) : false;
@@ -466,9 +544,27 @@ export async function openDiff(
 		// Check if file is tracked by Git LFS
 		const isLFS = await isLFSTrackedFile(fileName, folderManager);
 
+		// If it's an LFS file and checked out, ensure it's smudged first
+		if (isLFS && isCheckedOut) {
+			try {
+				await ensureLFSFileSmudged(filePath, folderManager);
+				Logger.appendLine(`FileUtils> LFS file smudged, ready to open: ${fileName}`);
+			} catch (lfsError) {
+				Logger.appendLine(`FileUtils> Warning: Failed to ensure LFS file is smudged: ${lfsError}`);
+				// Continue anyway
+			}
+		}
+
+		// If user wants to open file directly (checked out and smudged if LFS)
+		if (openMode === 'file') {
+			Logger.appendLine(`FileUtils> Opening file directly (not diff): ${fileName}`);
+			const actualFileUri = vscode.Uri.file(filePath.fsPath);
+			await vscode.commands.executeCommand('vscode.open', actualFileUri, showOptions);
+			return;
+		}
+
 		// For LFS files, always use temp files with smudged content (whether checked out or not)
 		if (isLFS) {
-			Logger.appendLine(`FileUtils> File is LFS tracked, creating temp files: ${fileName}`);
 
 			try {
 				let headContent: Buffer;

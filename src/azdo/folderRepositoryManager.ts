@@ -113,6 +113,7 @@ export class FolderRepositoryManager implements vscode.Disposable {
 	private _gitBlameCache: { [key: string]: string } = {};
 	private _githubManager: AzdoManager;
 	private _repositoryPageInformation: Map<string, PageInformation> = new Map<string, PageInformation>();
+	private _fileOpenModes: Map<string, 'diff' | 'file'> = new Map<string, 'diff' | 'file'>();
 
 	private _onDidChangeActivePullRequest = new vscode.EventEmitter<void>();
 	readonly onDidChangeActivePullRequest: vscode.Event<void> = this._onDidChangeActivePullRequest.event;
@@ -445,6 +446,29 @@ export class FolderRepositoryManager implements vscode.Disposable {
 		}
 
 		return currentBranch === prSourceBranch;
+	}
+
+	/**
+	 * Get the file open mode for a pull request (diff or file)
+	 * @param pullRequest The pull request
+	 * @returns 'diff' or 'file', defaults to 'diff'
+	 */
+	getFileOpenMode(pullRequest: PullRequestModel): 'diff' | 'file' {
+		if (!pullRequest) {
+			return 'diff';
+		}
+		return this._fileOpenModes.get(pullRequest.getPullRequestId().toString()) || 'diff';
+	}
+
+	/**
+	 * Set the file open mode for a pull request
+	 * @param pullRequest The pull request
+	 * @param mode 'diff' or 'file'
+	 */
+	setFileOpenMode(pullRequest: PullRequestModel, mode: 'diff' | 'file'): void {
+		if (pullRequest) {
+			this._fileOpenModes.set(pullRequest.getPullRequestId().toString(), mode);
+		}
 	}
 
 	get repository(): Repository {
