@@ -13,7 +13,7 @@
 	"enableProposedApi": false,
 	"preview": true,
 	"version": "0.3.0",
-	"publisher": "wildengrpro",
+	"publisher": "MMT",
 	"engines": {
 		"vscode": "^1.97.0"
 	},
