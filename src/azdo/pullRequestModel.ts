@@ -1004,6 +1004,7 @@ export class PullRequestModel implements IPullRequestModel {
 				fileName,
 				title: `${fileName} (Pull Request)`,
 				preserveFocus: true,
+				pullRequest: pullRequestModel,
 			});
 
 			Logger.appendLine(`openDiffFromComment> Opened diff for ${filePath}`);

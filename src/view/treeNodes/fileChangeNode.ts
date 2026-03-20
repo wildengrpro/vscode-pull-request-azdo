@@ -204,6 +204,7 @@ export class FileChangeNode extends TreeNode implements vscode.TreeItem {
 				fileName,
 				title: `${fileName} (Pull Request)`,
 				preserveFocus: true,
+				pullRequest: this.pullRequest,
 			});
 		} catch (error) {
 			Logger.appendLine(`FileChangeNode> Error opening diff: ${error}`);

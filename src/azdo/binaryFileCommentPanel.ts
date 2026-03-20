@@ -292,6 +292,7 @@ export class BinaryFileCommentPanel extends WebviewBase {
 				fileName,
 				title: `${fileName} (PR Diff)`,
 				preserveFocus: true,
+				pullRequest: this._pullRequest,
 			});
 
 			Logger.appendLine(`Opened diff for ${filePath} from comment link`);

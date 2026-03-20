@@ -449,6 +449,7 @@ export async function openDiff(
 		fileName?: string;
 		title?: string;
 		preserveFocus?: boolean;
+		pullRequest?: PullRequestModel;
 	}
 ): Promise<void> {
 	try {
@@ -459,68 +460,220 @@ export async function openDiff(
 			viewColumn: vscode.ViewColumn.One,
 		};
 
+		// Check if the branch is checked out
+		const isCheckedOut = options?.pullRequest ? folderManager.isPullRequestCheckedOut(options.pullRequest) : false;
+
 		// Check if file is tracked by Git LFS
 		const isLFS = await isLFSTrackedFile(fileName, folderManager);
 
+		// For LFS files, always use temp files with smudged content (whether checked out or not)
 		if (isLFS) {
 			Logger.appendLine(`FileUtils> File is LFS tracked, creating temp files: ${fileName}`);
 
-			// Extract commit params from the URIs
-			const params = fromPRUri(filePath);
-			const parentParams = fromPRUri(parentFilePath);
-
-			if (!params || !parentParams) {
-				Logger.appendLine('FileUtils> Could not parse PR URI parameters for LFS file');
-				// Fall back to opening with regular URIs
-				await vscode.commands.executeCommand('vscode.diff', parentFilePath, filePath, title, showOptions);
-				return;
-			}
-
 			try {
-				// Get actual content from git (handles LFS smudging)
-				const headContent = await folderManager.repository.buffer(params.headCommit, filePath.fsPath);
-
-				// For base file, handle different statuses
+				let headContent: Buffer;
 				let parentContent: Buffer;
-				if (params.isBase) {
-					parentContent = Buffer.alloc(0); // Empty file for ADD
-				} else {
-					parentContent = await folderManager.repository.buffer(parentParams.headCommit, parentFilePath.fsPath);
-				}
 
-				// Create temp files
-				const tempDir = os.tmpdir();
-				const fileExt = path.extname(fileName);
-				const timestamp = Date.now();
-				const randomSuffix = Math.random().toString(36).substring(7);
+				if (isCheckedOut) {
+					// When checked out with an LFS file, check if it's a pointer
+					const repoRoot = folderManager.repository.rootUri.fsPath;
+					const relativeFilePath = path.relative(repoRoot, filePath.fsPath);
+					const relativeParentPath = path.relative(repoRoot, parentFilePath.fsPath);
 
-				const parentTempFile = path.join(tempDir, `parent_${timestamp}_${randomSuffix}${fileExt}`);
-				const headTempFile = path.join(tempDir, `head_${timestamp}_${randomSuffix}${fileExt}`);
+					Logger.appendLine(`FileUtils> Branch is checked out, checking if file is LFS pointer: ${fileName}`);
 
-				fs.writeFileSync(parentTempFile, parentContent);
-				fs.writeFileSync(headTempFile, headContent);
-
-				const parentUri = vscode.Uri.file(parentTempFile);
-				const headUri = vscode.Uri.file(headTempFile);
-
-				// Open the diff
-				await vscode.commands.executeCommand('vscode.diff', parentUri, headUri, title, showOptions);
-
-				// Schedule cleanup
-				setTimeout(() => {
+					// Read the local file to check if it's a pointer
+					let isPointer = false;
 					try {
-						if (fs.existsSync(parentTempFile)) fs.unlinkSync(parentTempFile);
-						if (fs.existsSync(headTempFile)) fs.unlinkSync(headTempFile);
-					} catch (e) {
-						// Ignore cleanup errors
+						const localContent = fs.readFileSync(filePath.fsPath, 'utf-8');
+						isPointer = isLFSPointer(localContent);
+						Logger.appendLine(`FileUtils> Local file is ${isPointer ? 'an LFS pointer' : 'actual content'}: ${fileName}`);
+					} catch (readError) {
+						Logger.appendLine(`FileUtils> Error reading local file to check pointer: ${readError}`);
+						// Assume it might be a pointer
+						isPointer = true;
 					}
-				}, 30000);
+
+					if (isPointer) {
+						// File is a pointer - do selective git lfs pull to smudge it
+						Logger.appendLine(`FileUtils> Detected LFS pointer, doing selective git lfs pull: ${fileName}`);
+
+						try {
+							// Run git lfs pull for this specific file (relative path)
+							const child = spawn('git', ['lfs', 'pull', '--include', relativeFilePath], {
+								cwd: repoRoot,
+							});
+
+							return new Promise<void>((resolve, reject) => {
+								let error = '';
+								let output = '';
+
+								if (child.stdout) {
+									child.stdout.on('data', (chunk: Buffer) => {
+										output += chunk.toString('utf8');
+									});
+								}
+
+								if (child.stderr) {
+									child.stderr.on('data', (chunk: Buffer) => {
+										error += chunk.toString('utf8');
+									});
+								}
+
+								child.on('close', async (code) => {
+									if (code === 0) {
+										Logger.appendLine(`FileUtils> Git LFS pull succeeded for ${fileName}`);
+										Logger.appendLine(`FileUtils> Output: ${output}`);
+
+										// Now open the diff with the smudged file
+										try {
+											// Get parent content for comparison
+											let parentContent: Buffer;
+											try {
+												parentContent = await folderManager.repository.buffer('HEAD', relativeParentPath);
+											} catch {
+												// File was added, no parent version
+												parentContent = Buffer.alloc(0);
+											}
+
+											// Create temp file for parent only
+											const tempDir = os.tmpdir();
+											const fileExt = path.extname(fileName);
+											const timestamp = Date.now();
+											const randomSuffix = Math.random().toString(36).substring(7);
+											const parentTempFile = path.join(tempDir, `parent_${timestamp}_${randomSuffix}${fileExt}`);
+											fs.writeFileSync(parentTempFile, parentContent);
+
+											const parentUri = vscode.Uri.file(parentTempFile);
+											const headUri = filePath;
+
+											Logger.appendLine(`FileUtils> Diff: temp parent ${parentTempFile} vs actual file ${filePath.fsPath} (after LFS pull)`);
+
+											// Open the diff with parent as temp and head as the now-smudged local file
+											await vscode.commands.executeCommand('vscode.diff', parentUri, headUri, title, showOptions);
+
+											// Schedule cleanup for parent temp file
+											setTimeout(() => {
+												try {
+													if (fs.existsSync(parentTempFile)) fs.unlinkSync(parentTempFile);
+												} catch (e) {
+													// Ignore cleanup errors
+												}
+											}, 30000);
+
+											resolve();
+										} catch (diffError) {
+											Logger.appendLine(`FileUtils> Failed to open diff after LFS pull: ${diffError}`);
+											reject(diffError);
+										}
+									} else {
+										Logger.appendLine(`FileUtils> Git LFS pull failed with code ${code}`);
+										Logger.appendLine(`FileUtils> Error: ${error}`);
+										reject(new Error(`Git LFS pull failed: ${error}`));
+									}
+								});
+							});
+						} catch (lfsError) {
+							Logger.appendLine(`FileUtils> Failed to execute git lfs pull: ${lfsError}`);
+							throw lfsError;
+						}
+					}
+
+					// File is not a pointer - it's already actual content
+					Logger.appendLine(`FileUtils> File is already actual content, using original location: ${fileName}`);
+
+					// For parent file, always smudge since we need the base version
+					try {
+						parentContent = await folderManager.repository.buffer('HEAD', relativeParentPath);
+					} catch {
+						// File was added, no parent version
+						parentContent = Buffer.alloc(0);
+					}
+
+					// Create temp file for parent only (for comparison)
+					const tempDir = os.tmpdir();
+					const fileExt = path.extname(fileName);
+					const timestamp = Date.now();
+					const randomSuffix = Math.random().toString(36).substring(7);
+					const parentTempFile = path.join(tempDir, `parent_${timestamp}_${randomSuffix}${fileExt}`);
+					fs.writeFileSync(parentTempFile, parentContent);
+
+					const parentUri = vscode.Uri.file(parentTempFile);
+					// Construct proper file:// URI for the actual local file
+					const actualFileUri = vscode.Uri.file(filePath.fsPath);
+
+					Logger.appendLine(`FileUtils> Diff: temp parent ${parentTempFile} vs actual file ${actualFileUri.fsPath}`);
+
+					// Open the diff with parent as temp file and head as actual local file
+					await vscode.commands.executeCommand('vscode.diff', parentUri, actualFileUri, title, showOptions);
+
+					// Schedule cleanup for parent temp file only
+					setTimeout(() => {
+						try {
+							if (fs.existsSync(parentTempFile)) fs.unlinkSync(parentTempFile);
+						} catch (e) {
+							// Ignore cleanup errors
+						}
+					}, 30000);
+				} else {
+					// Not checked out - extract commit params from the review:// URIs
+					const params = fromPRUri(filePath);
+					const parentParams = fromPRUri(parentFilePath);
+
+					if (!params || !parentParams) {
+						Logger.appendLine('FileUtils> Could not parse PR URI parameters for LFS file');
+						await vscode.commands.executeCommand('vscode.diff', parentFilePath, filePath, title, showOptions);
+						return;
+					}
+
+					// Get actual content from git (handles LFS smudging)
+					headContent = await folderManager.repository.buffer(params.headCommit, filePath.fsPath);
+
+					// For base file, handle different statuses
+					if (params.isBase) {
+						parentContent = Buffer.alloc(0); // Empty file for ADD
+					} else {
+						parentContent = await folderManager.repository.buffer(parentParams.headCommit, parentFilePath.fsPath);
+					}
+
+					// Create temp files for both
+					const tempDir = os.tmpdir();
+					const fileExt = path.extname(fileName);
+					const timestamp = Date.now();
+					const randomSuffix = Math.random().toString(36).substring(7);
+
+					const parentTempFile = path.join(tempDir, `parent_${timestamp}_${randomSuffix}${fileExt}`);
+					const headTempFile = path.join(tempDir, `head_${timestamp}_${randomSuffix}${fileExt}`);
+
+					fs.writeFileSync(parentTempFile, parentContent);
+					fs.writeFileSync(headTempFile, headContent);
+
+					const parentUri = vscode.Uri.file(parentTempFile);
+					const headUri = vscode.Uri.file(headTempFile);
+
+					// Open the diff
+					await vscode.commands.executeCommand('vscode.diff', parentUri, headUri, title, showOptions);
+
+					// Schedule cleanup
+					setTimeout(() => {
+						try {
+							if (fs.existsSync(parentTempFile)) fs.unlinkSync(parentTempFile);
+							if (fs.existsSync(headTempFile)) fs.unlinkSync(headTempFile);
+						} catch (e) {
+							// Ignore cleanup errors
+						}
+					}, 30000);
+				};
 			} catch (lfsError) {
 				Logger.appendLine(`FileUtils> LFS handling failed, falling back: ${lfsError}`);
 				await vscode.commands.executeCommand('vscode.diff', parentFilePath, filePath, title, showOptions);
 			}
+		} else if (isCheckedOut) {
+			// Non-LFS file and branch is checked out - use local file URIs directly
+			Logger.appendLine(`FileUtils> Branch is checked out, using local file URIs for ${fileName}`);
+			await vscode.commands.executeCommand('vscode.diff', parentFilePath, filePath, title, showOptions);
 		} else {
-			// Regular file: use URIs as-is
+			// Non-LFS file and branch not checked out - use URIs as-is
 			await vscode.commands.executeCommand('vscode.diff', parentFilePath, filePath, title, showOptions);
 		}
 	} catch (error) {
